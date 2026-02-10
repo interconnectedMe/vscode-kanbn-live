@@ -1,13 +1,13 @@
 {
-  "name": "vscode-kanbn-boards",
-  "displayName": "Kanbn Extension for VSCode",
+  "name": "vscode-kanbn-live",
+  "displayName": "Kanbn Live (auto-refresh fork)",
   "description": "An extension for Visual Studio Code that allows you to manage tasks on a kanban board.",
   "icon": "resources/kanbn.png",
   "galleryBanner": {
     "color": "#72abdd",
     "theme": "dark"
   },
-  "version": "0.14.1",
+  "version": "0.14.2",
   "engines": {
     "vscode": "^1.73.1"
   },
@@ -18,7 +18,7 @@
     }
   ],
   "license": "MIT",
-  "publisher": "samgiz",
+  "publisher": "interconnectedMe",
   "keywords": [
     "kanbn",
     "kanban",
