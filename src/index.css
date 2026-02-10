@@ -348,6 +348,178 @@ body.vscode-dark .kanbn-task {
 }
 
 /*-----------------------------------------------------------------------------
+Multi-select & bulk toolbar styles
+-----------------------------------------------------------------------------*/
+
+.kanbn-task.kanbn-task-selected {
+    outline: 2px solid var(--vscode-focusBorder, #007acc);
+    outline-offset: -2px;
+}
+
+body.vscode-light .kanbn-task.kanbn-task-selected {
+    background-color: rgba(0, 122, 204, 0.08);
+}
+
+body.vscode-dark .kanbn-task.kanbn-task-selected {
+    background-color: rgba(0, 122, 204, 0.15);
+}
+
+.kanbn-bulk-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    margin-bottom: 8px;
+    background-color: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    border: 1px solid var(--vscode-focusBorder, #007acc);
+    border-radius: 4px;
+}
+
+.kanbn-bulk-toolbar-count {
+    font-weight: bold;
+    font-size: 0.9em;
+    white-space: nowrap;
+}
+
+.kanbn-bulk-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.kanbn-bulk-toolbar-button {
+    outline: none;
+    border: 1px transparent solid;
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    padding: 4px 10px;
+    font-size: 0.85em;
+    cursor: pointer;
+    white-space: nowrap;
+    border-radius: 2px;
+}
+
+.kanbn-bulk-toolbar-button .codicon {
+    font-size: 11px !important;
+    position: relative;
+    top: 1px;
+    margin-right: 4px;
+}
+
+.kanbn-bulk-toolbar-button:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.kanbn-bulk-archive-button:hover {
+    background-color: #c44;
+}
+
+.kanbn-bulk-deselect-button {
+    padding: 4px 6px;
+}
+
+.kanbn-bulk-deselect-button .codicon {
+    margin-right: 0;
+}
+
+.kanbn-bulk-move-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.kanbn-bulk-move-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 100;
+    min-width: 160px;
+    background-color: var(--vscode-menu-background, var(--vscode-editor-background));
+    border: 1px solid var(--vscode-menu-border, var(--vscode-activityBar-inactiveForeground));
+    border-radius: 2px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    padding: 4px 0;
+}
+
+.kanbn-bulk-move-menu-item {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--vscode-menu-foreground, var(--vscode-foreground));
+    font-size: 0.85em;
+    text-align: left;
+    cursor: pointer;
+}
+
+.kanbn-bulk-move-menu-item:hover {
+    background-color: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.05));
+}
+
+/*-----------------------------------------------------------------------------
+Help popover styles
+-----------------------------------------------------------------------------*/
+
+.kanbn-help-popover {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 200;
+    width: 380px;
+    max-height: 70vh;
+    overflow-y: auto;
+    background-color: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-activityBar-inactiveForeground));
+    border-radius: 4px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    padding: 12px 16px;
+    font-size: 0.85em;
+    font-weight: normal;
+    font-style: normal;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.kanbn-help-section {
+    margin-bottom: 12px;
+}
+
+.kanbn-help-section:last-child {
+    margin-bottom: 0;
+}
+
+.kanbn-help-section h3 {
+    font-size: 0.9em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.7;
+    margin: 0 0 6px 0;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--vscode-activityBar-inactiveForeground);
+}
+
+.kanbn-help-section dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 10px;
+}
+
+.kanbn-help-section dt {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.9em;
+    font-weight: bold;
+    color: var(--vscode-textLink-foreground, #3794ff);
+    white-space: nowrap;
+}
+
+.kanbn-help-section dd {
+    margin: 0;
+    opacity: 0.8;
+}
+
+/*-----------------------------------------------------------------------------
 Task editor styles
 -----------------------------------------------------------------------------*/
 

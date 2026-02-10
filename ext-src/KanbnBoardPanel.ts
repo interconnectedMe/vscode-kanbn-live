@@ -228,6 +228,53 @@ export default class KanbnBoardPanel {
             }
             return
           }
+          // Bulk move multiple tasks to a target column
+          case 'kanbn.bulkMove': {
+            const targetColumn = message.columnName as string
+            const taskIds = message.taskIds as string[]
+            try {
+              for (const taskId of taskIds) {
+                await this._kanbn.moveTask(taskId, targetColumn, -1)
+              }
+            } catch (e) {
+              if (e instanceof Error) {
+                void vscode.window.showErrorMessage(e.message)
+              } else {
+                throw e
+              }
+            }
+            void this.update()
+            if (vscode.workspace.getConfiguration('kanbn').get<boolean>('showTaskNotifications') === true) {
+              void vscode.window.showInformationMessage(
+                `Moved ${taskIds.length} task${taskIds.length === 1 ? '' : 's'} to ${targetColumn}.`
+              )
+            }
+            return
+          }
+
+          // Bulk archive multiple tasks
+          case 'kanbn.bulkArchive': {
+            const archiveIds = message.taskIds as string[]
+            try {
+              for (const taskId of archiveIds) {
+                await this._kanbn.archiveTask(taskId)
+              }
+            } catch (e) {
+              if (e instanceof Error) {
+                void vscode.window.showErrorMessage(e.message)
+              } else {
+                throw e
+              }
+            }
+            void this.update()
+            if (vscode.workspace.getConfiguration('kanbn').get<boolean>('showTaskNotifications') === true) {
+              void vscode.window.showInformationMessage(
+                `Archived ${archiveIds.length} task${archiveIds.length === 1 ? '' : 's'}.`
+              )
+            }
+            return
+          }
+
           // Open a burndown chart
           case 'kanbn.burndown':
             this._kanbnBurndownPanel.show()

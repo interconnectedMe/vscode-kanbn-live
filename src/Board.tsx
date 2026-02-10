@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
 import { DragDropContext, Droppable } from 'react-beautiful-dnd'
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import TaskItem from './TaskItem'
 import { paramCase } from '@basementuniverse/kanbn/src/utility'
 import vscode from './vscode'
@@ -9,7 +9,7 @@ import formatDate from 'dateformat'
 const zip = (a: any[], b: any[]): Array<[any, any]> => a.map((v: any, i: number): [any, any] => [v, b[i]])
 
 // Called when a task item has finished being dragged
-const onDragEnd = (result, columns, setColumns): void => {
+const onDragEnd = (result, columns, setColumns, clearSelection): void => {
   // No destination means the item was dragged to an invalid location
   if (result.destination === undefined || result.destination === null) {
     return
@@ -48,6 +48,9 @@ const onDragEnd = (result, columns, setColumns): void => {
       [source.droppableId]: copiedItems
     })
   }
+
+  // Clear selection after drag
+  clearSelection()
 
   // Post a message back to the extension so we can move the task in the index
   vscode.postMessage({
@@ -173,6 +176,130 @@ const filterTask = (
   return result
 }
 
+// Help popover content
+interface HelpItem {
+  label: string
+  desc: string
+}
+interface HelpSection {
+  heading: string
+  items: HelpItem[]
+}
+const helpContent: HelpSection[] = [
+  {
+    heading: 'Filter Syntax',
+    items: [
+      {
+        label: 'Text search',
+        desc: 'Type any text to match task name or ID'
+      },
+      {
+        label: 'description:term',
+        desc: 'Search in description and subtask text'
+      },
+      {
+        label: 'assigned:name',
+        desc: 'Filter by assignee'
+      },
+      {
+        label: 'tag:name',
+        desc: 'Filter by tag'
+      },
+      {
+        label: 'relation:term',
+        desc: 'Filter by relation type or task'
+      },
+      {
+        label: 'subtask:term',
+        desc: 'Search subtask text'
+      },
+      {
+        label: 'comment:term',
+        desc: 'Search comment author or text'
+      },
+      {
+        label: 'overdue',
+        desc: 'Show only overdue tasks'
+      }
+    ]
+  },
+  {
+    heading: 'Multi-Select',
+    items: [
+      {
+        label: 'Ctrl+Click',
+        desc: 'Toggle select individual cards'
+      },
+      {
+        label: 'Shift+Click',
+        desc: 'Select a range within a column'
+      },
+      {
+        label: 'Click away',
+        desc: 'Deselect all'
+      }
+    ]
+  },
+  {
+    heading: 'Commands (Ctrl+Shift+P)',
+    items: [
+      {
+        label: 'Kanbn: Open board',
+        desc: 'Open a Kanbn board panel'
+      },
+      {
+        label: 'Kanbn: Add task',
+        desc: 'Create a new task'
+      },
+      {
+        label: 'Kanbn: Open task',
+        desc: 'Open an existing task'
+      },
+      {
+        label: 'Kanbn: Archive tasks',
+        desc: 'Archive tasks via picker'
+      },
+      {
+        label: 'Kanbn: Restore tasks',
+        desc: 'Restore archived tasks'
+      },
+      {
+        label: 'Kanbn: Open burndown',
+        desc: 'View burndown chart'
+      },
+      {
+        label: 'Kanbn: Create board',
+        desc: 'Create a new board'
+      }
+    ]
+  },
+  {
+    heading: 'Settings (kanbn.*)',
+    items: [
+      {
+        label: 'additionalBoards',
+        desc: 'Array of extra board paths'
+      },
+      {
+        label: 'showBurndownButton',
+        desc: 'Show burndown chart button'
+      },
+      {
+        label: 'showSprintButton',
+        desc: 'Show sprint button'
+      },
+      {
+        label: 'showTaskNotifications',
+        desc: 'Notify on task create/update/delete'
+      },
+      {
+        label: 'showUninitialisedStatusBarItem',
+        desc: 'Show status bar when uninitialised'
+      }
+    ]
+  }
+]
+
 function Board (): JSX.Element {
   const [state, setState] = useState(vscode.getState() ?? {
     name: '',
@@ -189,6 +316,131 @@ function Board (): JSX.Element {
     currentSprint: null,
     taskFilter: ''
   })
+
+  // Multi-select state
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
+  const [lastClicked, setLastClicked] = useState<{ taskId: string, columnName: string, position: number } | null>(null)
+  const [showHelp, setShowHelp] = useState(false)
+  const [showMoveMenu, setShowMoveMenu] = useState(false)
+  const helpRef = useRef<HTMLDivElement>(null)
+  const moveMenuRef = useRef<HTMLDivElement>(null)
+
+  const clearSelection = useCallback(() => {
+    setSelectedTaskIds(new Set())
+    setLastClicked(null)
+  }, [])
+
+  // Click-away to deselect: listen on the board background
+  useEffect(() => {
+    const handleClick = (e: MouseEvent): void => {
+      const target = e.target as HTMLElement
+      // Don't deselect if clicking within a task, the bulk toolbar, or the help popover
+      if (
+        target.closest('.kanbn-task') != null ||
+        target.closest('.kanbn-bulk-toolbar') != null ||
+        target.closest('.kanbn-help-popover') != null ||
+        target.closest('.kanbn-help-button') != null
+      ) {
+        return
+      }
+      if (selectedTaskIds.size > 0) {
+        clearSelection()
+      }
+    }
+    document.addEventListener('click', handleClick)
+    return () => { document.removeEventListener('click', handleClick) }
+  }, [selectedTaskIds, clearSelection])
+
+  // Close help popover on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent): void => {
+      const target = e.target as HTMLElement
+      if (
+        showHelp &&
+        helpRef.current != null &&
+        !helpRef.current.contains(target) &&
+        target.closest('.kanbn-help-button') == null
+      ) {
+        setShowHelp(false)
+      }
+    }
+    document.addEventListener('click', handleClick)
+    return () => { document.removeEventListener('click', handleClick) }
+  }, [showHelp])
+
+  // Close move menu on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent): void => {
+      const target = e.target as HTMLElement
+      if (
+        showMoveMenu &&
+        moveMenuRef.current != null &&
+        !moveMenuRef.current.contains(target) &&
+        target.closest('.kanbn-bulk-move-button') == null
+      ) {
+        setShowMoveMenu(false)
+      }
+    }
+    document.addEventListener('click', handleClick)
+    return () => { document.removeEventListener('click', handleClick) }
+  }, [showMoveMenu])
+
+  // Handle task selection (Ctrl+click toggle, Shift+click range)
+  const handleTaskSelect = useCallback((taskId: string, columnName: string, position: number, e: React.MouseEvent) => {
+    setSelectedTaskIds(prev => {
+      const next = new Set(prev)
+
+      if (e.shiftKey && lastClicked != null && lastClicked.columnName === columnName) {
+        // Shift+click: select range within same column
+        const tasks = (state.columns[columnName] as KanbnTask[] ?? [])
+          .filter(task => filterTask(task, state.taskFilter, state.customFields))
+        const startIdx = Math.min(lastClicked.position, position)
+        const endIdx = Math.max(lastClicked.position, position)
+        for (let i = startIdx; i <= endIdx; i++) {
+          if (tasks[i] != null) {
+            next.add(tasks[i].id)
+          }
+        }
+      } else if (e.ctrlKey || e.metaKey) {
+        // Ctrl+click: toggle individual
+        if (next.has(taskId)) {
+          next.delete(taskId)
+        } else {
+          next.add(taskId)
+        }
+      } else {
+        // Plain click with modifier — shouldn't reach here, but treat as toggle
+        if (next.has(taskId)) {
+          next.delete(taskId)
+        } else {
+          next.add(taskId)
+        }
+      }
+
+      return next
+    })
+    setLastClicked({ taskId, columnName, position })
+  }, [lastClicked, state.columns, state.taskFilter, state.customFields])
+
+  const handleBulkMove = useCallback((targetColumn: string) => {
+    const taskIds = [...selectedTaskIds]
+    vscode.postMessage({
+      command: 'kanbn.bulkMove',
+      taskIds,
+      columnName: targetColumn
+    })
+    clearSelection()
+    setShowMoveMenu(false)
+  }, [selectedTaskIds, clearSelection])
+
+  const handleBulkArchive = useCallback(() => {
+    const taskIds = [...selectedTaskIds]
+    vscode.postMessage({
+      command: 'kanbn.bulkArchive',
+      taskIds
+    })
+    clearSelection()
+  }, [selectedTaskIds, clearSelection])
 
   const processMessage = useCallback(event => {
     const newState: any = {}
@@ -254,6 +506,9 @@ function Board (): JSX.Element {
   }
 
   const taskFilter = state.taskFilter
+  const columnNames = Object.keys(state.columns).filter(
+    col => !(state.hiddenColumns.includes(col) as boolean)
+  )
 
   // Indicate that the board is ready to receive messages and should be updated
   useEffect(() => vscode.postMessage({ command: 'kanbn.updateMe' }), [])
@@ -286,6 +541,35 @@ function Board (): JSX.Element {
                 >
                   <i className="codicon codicon-clear-all"></i>
                 </button>
+              }
+              <button
+                type="button"
+                className="kanbn-header-button kanbn-help-button"
+                onClick={(e) => {
+                  e.preventDefault()
+                  setShowHelp(!showHelp)
+                }}
+                title="Help — commands, settings, filter syntax"
+              >
+                <i className="codicon codicon-question"></i>
+              </button>
+              {
+                showHelp &&
+                <div className="kanbn-help-popover" ref={helpRef}>
+                  {helpContent.map(section => (
+                    <div key={section.heading} className="kanbn-help-section">
+                      <h3>{section.heading}</h3>
+                      <dl>
+                        {section.items.map(item => (
+                          <React.Fragment key={item.label}>
+                            <dt>{item.label}</dt>
+                            <dd>{item.desc}</dd>
+                          </React.Fragment>
+                        ))}
+                      </dl>
+                    </div>
+                  ))}
+                </div>
               }
               {
                 state.showSprintButton as boolean &&
@@ -330,9 +614,55 @@ function Board (): JSX.Element {
           {state.description}
         </p>
       </div>
+      {
+        selectedTaskIds.size > 0 &&
+        <div className="kanbn-bulk-toolbar">
+          <span className="kanbn-bulk-toolbar-count">{selectedTaskIds.size} card{selectedTaskIds.size !== 1 ? 's' : ''} selected</span>
+          <div className="kanbn-bulk-toolbar-actions">
+            <div className="kanbn-bulk-move-wrapper">
+              <button
+                type="button"
+                className="kanbn-bulk-toolbar-button kanbn-bulk-move-button"
+                onClick={() => { setShowMoveMenu(!showMoveMenu) }}
+              >
+                <i className="codicon codicon-arrow-right"></i> Move to...
+              </button>
+              {
+                showMoveMenu &&
+                <div className="kanbn-bulk-move-menu" ref={moveMenuRef}>
+                  {columnNames.map(col => (
+                    <button
+                      key={col}
+                      type="button"
+                      className="kanbn-bulk-move-menu-item"
+                      onClick={() => { handleBulkMove(col) }}
+                    >
+                      {col}
+                    </button>
+                  ))}
+                </div>
+              }
+            </div>
+            <button
+              type="button"
+              className="kanbn-bulk-toolbar-button kanbn-bulk-archive-button"
+              onClick={handleBulkArchive}
+            >
+              <i className="codicon codicon-archive"></i> Archive
+            </button>
+            <button
+              type="button"
+              className="kanbn-bulk-toolbar-button kanbn-bulk-deselect-button"
+              onClick={clearSelection}
+            >
+              <i className="codicon codicon-close"></i>
+            </button>
+          </div>
+        </div>
+      }
       <div className="kanbn-board">
         <DragDropContext
-          onDragEnd={result => onDragEnd(result, state.columns, setColumns)}
+          onDragEnd={result => onDragEnd(result, state.columns, setColumns, clearSelection)}
         >
           {Object.entries(state.columns).map(([columnName, column]) => {
             if (state.hiddenColumns.includes(columnName) as boolean) {
@@ -417,6 +747,8 @@ function Board (): JSX.Element {
                               customFields={state.customFields}
                               position={position}
                               dateFormat={state.dateFormat}
+                              isSelected={selectedTaskIds.has(task.id)}
+                              onSelect={handleTaskSelect}
                             />)}
                           {provided.placeholder}
                         </div>

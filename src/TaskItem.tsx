@@ -4,12 +4,14 @@ import formatDate from 'dateformat'
 import { paramCase } from '@basementuniverse/kanbn/src/utility'
 import vscode from './vscode'
 
-const TaskItem = ({ task, columnName, customFields, position, dateFormat }: {
+const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSelected, onSelect }: {
   task: KanbnTask
   columnName: string
   customFields: Array<{ name: string, type: 'boolean' | 'date' | 'number' | 'string' }>
   position: number
   dateFormat: string
+  isSelected: boolean
+  onSelect: (taskId: string, columnName: string, position: number, e: React.MouseEvent) => void
 }): JSX.Element => {
   const createdDate = 'created' in task.metadata ? formatDate(task.metadata.created, dateFormat) : null
   const updatedDate = 'updated' in task.metadata ? formatDate(task.metadata.updated, dateFormat) : null
@@ -44,17 +46,28 @@ const TaskItem = ({ task, columnName, customFields, position, dateFormat }: {
               `kanbn-task-column-${String(paramCase(columnName))}`,
               checkOverdue(task) ? 'kanbn-task-overdue' : null,
               completedDate ?? 'kanbn-task-completed',
-              isDragging ? 'drag' : null
+              isDragging ? 'drag' : null,
+              isSelected ? 'kanbn-task-selected' : null
             ].filter(i => i).join(' ')}
             style={{
               userSelect: 'none',
               ...provided.draggableProps.style
             }}
+            onClick={(e) => {
+              if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                e.preventDefault()
+                e.stopPropagation()
+                onSelect(task.id, columnName, position, e)
+              }
+            }}
           >
             <div className="kanbn-task-data kanbn-task-data-name">
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                    return
+                  }
                   vscode.postMessage({
                     command: 'kanbn.task',
                     taskId: task.id,
