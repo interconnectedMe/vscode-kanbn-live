@@ -35,11 +35,26 @@ const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSele
     >
       {(provided, snapshot) => {
         const isDragging: boolean = snapshot.isDragging
+        const dragHandleProps = provided.dragHandleProps ?? {}
+        const originalOnMouseDown = dragHandleProps.onMouseDown
         return (
           <div
             ref={provided.innerRef}
             {...provided.draggableProps}
-            {...provided.dragHandleProps}
+            {...dragHandleProps}
+            onMouseDown={(e: React.MouseEvent<HTMLDivElement>) => {
+              // When Ctrl/Shift is held, handle selection instead of drag
+              if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                e.preventDefault()
+                e.stopPropagation()
+                onSelect(task.id, columnName, position, e)
+                return
+              }
+              // Otherwise, let react-beautiful-dnd handle the drag
+              if (originalOnMouseDown != null) {
+                originalOnMouseDown(e as any)
+              }
+            }}
             className={[
               'kanbn-task',
               // TODO: remove the explicit String cast once typescript bindings for kanbn are updated
@@ -53,21 +68,11 @@ const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSele
               userSelect: 'none',
               ...provided.draggableProps.style
             }}
-            onClick={(e) => {
-              if (e.ctrlKey || e.metaKey || e.shiftKey) {
-                e.preventDefault()
-                e.stopPropagation()
-                onSelect(task.id, columnName, position, e)
-              }
-            }}
           >
             <div className="kanbn-task-data kanbn-task-data-name">
               <button
                 type="button"
-                onClick={(e) => {
-                  if (e.ctrlKey || e.metaKey || e.shiftKey) {
-                    return
-                  }
+                onClick={() => {
                   vscode.postMessage({
                     command: 'kanbn.task',
                     taskId: task.id,

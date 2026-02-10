@@ -77,6 +77,15 @@ Board styles
     top: 2px;
 }
 
+.kanbn-help-button {
+    padding: 6px 8px;
+}
+
+.kanbn-help-button .codicon {
+    font-size: 16px !important;
+    top: 2px;
+}
+
 .kanbn-header-button-sprint .codicon {
     margin-right: 0.5em;
 }
@@ -466,7 +475,7 @@ Help popover styles
     top: calc(100% + 4px);
     right: 0;
     z-index: 200;
-    width: 380px;
+    width: 520px;
     max-height: 70vh;
     overflow-y: auto;
     background-color: var(--vscode-editorWidget-background, var(--vscode-editor-background));
@@ -517,6 +526,8 @@ Help popover styles
 .kanbn-help-section dd {
     margin: 0;
     opacity: 0.8;
+    white-space: normal;
+    word-wrap: break-word;
 }
 
 /*-----------------------------------------------------------------------------
