@@ -85,11 +85,14 @@ export async function activate (context: vscode.ExtensionContext): Promise<void>
         new vscode.RelativePattern(vscode.Uri.file(`${boardLocation}/.kanbn`), '**')
       )
 
-      fileWatcher.onDidChange(() => {
+      const refreshBoard = (): void => {
         void kanbnStatusBarItem.update(kanbnTuple.kanbn)
         void kanbnTuple.kanbnBoardPanel.update()
         void kanbnTuple.kanbnBurnDownPanel.update()
-      })
+      }
+      fileWatcher.onDidChange(refreshBoard)
+      fileWatcher.onDidCreate(refreshBoard)
+      fileWatcher.onDidDelete(refreshBoard)
     }
   }
   populateBoardCache()
@@ -132,11 +135,14 @@ export async function activate (context: vscode.ExtensionContext): Promise<void>
         const fileWatcher = vscode.workspace.createFileSystemWatcher(
           new vscode.RelativePattern(vscode.workspace.workspaceFolders[0], `.kanbn_boards/${boardName}/**.*`)
         )
-        fileWatcher.onDidChange(() => {
+        const refreshNewBoard = (): void => {
           void kanbnStatusBarItem.update(kanbnTuple.kanbn)
           void kanbnTuple.kanbnBoardPanel.update()
           void kanbnTuple.kanbnBurnDownPanel.update()
-        })
+        }
+        fileWatcher.onDidChange(refreshNewBoard)
+        fileWatcher.onDidCreate(refreshNewBoard)
+        fileWatcher.onDidDelete(refreshNewBoard)
         boardCache.set(boardName, kanbnTuple)
         void vscode.window.showInformationMessage(`Created Kanbn board '${boardLocation}'.`)
         break
