@@ -9,7 +9,7 @@ import formatDate from 'dateformat'
 const zip = (a: any[], b: any[]): Array<[any, any]> => a.map((v: any, i: number): [any, any] => [v, b[i]])
 
 // Called when a task item has finished being dragged
-const onDragEnd = (result, columns, setColumns, clearSelection): void => {
+const onDragEnd = (result, columns, setColumns, clearSelection, selectedTaskIds: Set<string>): void => {
   // No destination means the item was dragged to an invalid location
   if (result.destination === undefined || result.destination === null) {
     return
@@ -17,7 +17,44 @@ const onDragEnd = (result, columns, setColumns, clearSelection): void => {
 
   // Get the source and destination columns
   const { source, destination } = result
+  const draggedTaskId = result.draggableId
 
+  // Multi-drag: if the dragged card is part of a multi-selection, move all selected cards
+  if (selectedTaskIds.has(draggedTaskId) && selectedTaskIds.size > 1) {
+    const targetColumn = destination.droppableId
+    const taskIds = [...selectedTaskIds]
+
+    // Update local state: remove selected tasks from current columns, insert into target
+    const newColumns: Record<string, any[]> = {}
+    const selectedTasks: any[] = []
+    for (const colName in columns) {
+      const remaining: any[] = []
+      for (const task of columns[colName]) {
+        if (selectedTaskIds.has(task.id)) {
+          selectedTasks.push(task)
+        } else {
+          remaining.push(task)
+        }
+      }
+      newColumns[colName] = remaining
+    }
+    const targetTasks = newColumns[targetColumn] ?? []
+    const insertIdx = Math.min(destination.index, targetTasks.length)
+    targetTasks.splice(insertIdx, 0, ...selectedTasks)
+    newColumns[targetColumn] = targetTasks
+    setColumns(newColumns)
+
+    // Persist to backend
+    vscode.postMessage({
+      command: 'kanbn.bulkMove',
+      taskIds,
+      columnName: targetColumn
+    })
+    clearSelection()
+    return
+  }
+
+  // Single-card drag
   // The item that was moved
   let removed: KanbnTask
 
@@ -61,10 +98,27 @@ const onDragEnd = (result, columns, setColumns, clearSelection): void => {
   })
 }
 
+// Parse date strings, handling DD/MM/YYYY format that JavaScript misinterprets as MM/DD/YYYY
+const parseDate = (value: any): Date | null => {
+  if (value == null) return null
+  const s = String(value)
+  const slashMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (slashMatch != null) {
+    const day = parseInt(slashMatch[1], 10)
+    const month = parseInt(slashMatch[2], 10)
+    const year = parseInt(slashMatch[3], 10)
+    return new Date(year, month - 1, day)
+  }
+  const d = new Date(s)
+  if (isNaN(d.getTime())) return null
+  return d
+}
+
 // Check if a task's due date is in the past
 const checkOverdue = (task: KanbnTask): boolean => {
   if (task.metadata.due !== undefined) {
-    return Date.parse(task.metadata.due) < (new Date()).getTime()
+    const d = parseDate(task.metadata.due)
+    return d != null && d.getTime() < (new Date()).getTime()
   }
   return false
 }
@@ -319,20 +373,26 @@ function Board (): JSX.Element {
 
   // Multi-select state
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
+  const selectedTaskIdsRef = useRef<Set<string>>(selectedTaskIds)
+  selectedTaskIdsRef.current = selectedTaskIds
   const [lastClicked, setLastClicked] = useState<{ taskId: string, columnName: string, position: number } | null>(null)
   const [showHelp, setShowHelp] = useState(false)
   const [showMoveMenu, setShowMoveMenu] = useState(false)
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
   const helpRef = useRef<HTMLDivElement>(null)
   const moveMenuRef = useRef<HTMLDivElement>(null)
+  const isDraggingRef = useRef(false)
 
   const clearSelection = useCallback(() => {
     setSelectedTaskIds(new Set())
     setLastClicked(null)
+    setShowArchiveConfirm(false)
   }, [])
 
   // Click-away to deselect: listen on the board background
   useEffect(() => {
     const handleClick = (e: MouseEvent): void => {
+      if (isDraggingRef.current) return
       const target = e.target as HTMLElement
       // Don't deselect if clicking within a task, the bulk toolbar, or the help popover
       if (
@@ -384,6 +444,23 @@ function Board (): JSX.Element {
     document.addEventListener('click', handleClick)
     return () => { document.removeEventListener('click', handleClick) }
   }, [showMoveMenu])
+
+  // Escape key: close popover, close move menu, or clear selection
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        if (showHelp) {
+          setShowHelp(false)
+        } else if (showMoveMenu) {
+          setShowMoveMenu(false)
+        } else if (selectedTaskIds.size > 0) {
+          clearSelection()
+        }
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => { document.removeEventListener('keydown', handleKeyDown) }
+  }, [showHelp, showMoveMenu, selectedTaskIds, clearSelection])
 
   // Handle task selection (Ctrl+click toggle, Shift+click range)
   const handleTaskSelect = useCallback((taskId: string, columnName: string, position: number, e: React.MouseEvent) => {
@@ -539,7 +616,7 @@ function Board (): JSX.Element {
                   onClick={clearFilters}
                   title="Clear task filters"
                 >
-                  <i className="codicon codicon-clear-all"></i>
+                  <i className="codicon codicon-close"></i>
                 </button>
               }
               <button
@@ -643,13 +720,33 @@ function Board (): JSX.Element {
                 </div>
               }
             </div>
-            <button
-              type="button"
-              className="kanbn-bulk-toolbar-button kanbn-bulk-archive-button"
-              onClick={handleBulkArchive}
-            >
-              <i className="codicon codicon-archive"></i> Archive
-            </button>
+            {
+              !showArchiveConfirm
+                ? <button
+                    type="button"
+                    className="kanbn-bulk-toolbar-button kanbn-bulk-archive-button"
+                    onClick={() => { setShowArchiveConfirm(true) }}
+                  >
+                    <i className="codicon codicon-archive"></i> Archive
+                  </button>
+                : <span className="kanbn-bulk-archive-confirm">
+                    Archive {selectedTaskIds.size} card{selectedTaskIds.size !== 1 ? 's' : ''}?
+                    <button
+                      type="button"
+                      className="kanbn-bulk-toolbar-button kanbn-bulk-archive-confirm-yes"
+                      onClick={() => { handleBulkArchive(); setShowArchiveConfirm(false) }}
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      className="kanbn-bulk-toolbar-button kanbn-bulk-archive-confirm-no"
+                      onClick={() => { setShowArchiveConfirm(false) }}
+                    >
+                      Cancel
+                    </button>
+                  </span>
+            }
             <button
               type="button"
               className="kanbn-bulk-toolbar-button kanbn-bulk-deselect-button"
@@ -662,7 +759,11 @@ function Board (): JSX.Element {
       }
       <div className="kanbn-board">
         <DragDropContext
-          onDragEnd={result => onDragEnd(result, state.columns, setColumns, clearSelection)}
+          onBeforeDragStart={() => { isDraggingRef.current = true }}
+          onDragEnd={result => {
+            isDraggingRef.current = false
+            onDragEnd(result, state.columns, setColumns, clearSelection, selectedTaskIdsRef.current)
+          }}
         >
           {Object.entries(state.columns).map(([columnName, column]) => {
             if (state.hiddenColumns.includes(columnName) as boolean) {
@@ -748,6 +849,7 @@ function Board (): JSX.Element {
                               position={position}
                               dateFormat={state.dateFormat}
                               isSelected={selectedTaskIds.has(task.id)}
+                              selectedCount={selectedTaskIds.size}
                               onSelect={handleTaskSelect}
                             />)}
                           {provided.placeholder}

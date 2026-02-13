@@ -13,6 +13,14 @@ body.vscode-high-contrast {
 Board styles
 -----------------------------------------------------------------------------*/
 
+.kanbn-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: var(--vscode-editor-background);
+    padding-bottom: 4px;
+}
+
 .kanbn-header-name {
     font-size: 1.5em;
     margin-top: 0;
@@ -96,6 +104,16 @@ Board styles
 
 .kanbn-header-button:hover, .kanbn-header-button:active {
     background-color: var(--vscode-button-hoverBackground);
+}
+
+.kanbn-header-button-clear-filter {
+    background-color: #c44;
+    color: #fff;
+}
+
+.kanbn-header-button-clear-filter:hover,
+.kanbn-header-button-clear-filter:active {
+    background-color: #a33 !important;
 }
 
 .kanbn-header-button-inactive {
@@ -374,6 +392,9 @@ body.vscode-dark .kanbn-task.kanbn-task-selected {
 }
 
 .kanbn-bulk-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 11;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -421,6 +442,27 @@ body.vscode-dark .kanbn-task.kanbn-task-selected {
 
 .kanbn-bulk-archive-button:hover {
     background-color: #c44;
+}
+
+.kanbn-bulk-archive-confirm {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85em;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.kanbn-bulk-archive-confirm-yes {
+    background-color: #c44 !important;
+}
+
+.kanbn-bulk-archive-confirm-yes:hover {
+    background-color: #a33 !important;
+}
+
+.kanbn-bulk-archive-confirm-no:hover {
+    background-color: var(--vscode-button-hoverBackground);
 }
 
 .kanbn-bulk-deselect-button {
@@ -531,6 +573,27 @@ Help popover styles
 }
 
 /*-----------------------------------------------------------------------------
+Multi-drag badge
+-----------------------------------------------------------------------------*/
+
+.kanbn-multi-drag-badge {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    min-width: 20px;
+    height: 20px;
+    line-height: 20px;
+    text-align: center;
+    font-size: 0.75em;
+    font-weight: bold;
+    color: #fff;
+    background-color: var(--vscode-focusBorder, #007acc);
+    border-radius: 10px;
+    padding: 0 4px;
+    z-index: 5;
+}
+
+/*-----------------------------------------------------------------------------
 Task editor styles
 -----------------------------------------------------------------------------*/
 
@@ -604,7 +667,7 @@ body.vscode-dark .kanbn-task-editor-field-input[type="date"]::-webkit-calendar-p
 }
 
 #description-input {
-    min-height: 97px;
+    min-height: 720px;
 }
 
 .kanbn-task-editor-field-input[type=date] {

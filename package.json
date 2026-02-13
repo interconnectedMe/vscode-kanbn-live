@@ -7,7 +7,7 @@
     "color": "#72abdd",
     "theme": "dark"
   },
-  "version": "0.15.3",
+  "version": "0.17.1",
   "engines": {
     "vscode": "^1.73.1"
   },
@@ -139,7 +139,8 @@
     "start": "react-scripts start",
     "build": "./scripts/build-non-split.js && tsc -p tsconfig.extension.json",
     "test": "react-scripts test --env=jsdom",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "postinstall": "node scripts/patch-kanbn-chrono.js"
   },
   "devDependencies": {
     "@types/dateformat": "^5.0.0",

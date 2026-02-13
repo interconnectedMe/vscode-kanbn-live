@@ -4,25 +4,49 @@ import formatDate from 'dateformat'
 import { paramCase } from '@basementuniverse/kanbn/src/utility'
 import vscode from './vscode'
 
-const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSelected, onSelect }: {
+// Parse date strings, handling DD/MM/YYYY format that JavaScript misinterprets as MM/DD/YYYY
+const parseDate = (value: any): Date | null => {
+  if (value == null) return null
+  const s = String(value)
+  // Match DD/MM/YYYY (1-2 digit day and month, 4-digit year)
+  const slashMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (slashMatch != null) {
+    const day = parseInt(slashMatch[1], 10)
+    const month = parseInt(slashMatch[2], 10)
+    const year = parseInt(slashMatch[3], 10)
+    return new Date(year, month - 1, day)
+  }
+  // For ISO or other formats, let Date parse normally
+  const d = new Date(s)
+  if (isNaN(d.getTime())) return null
+  return d
+}
+
+const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSelected, selectedCount, onSelect }: {
   task: KanbnTask
   columnName: string
   customFields: Array<{ name: string, type: 'boolean' | 'date' | 'number' | 'string' }>
   position: number
   dateFormat: string
   isSelected: boolean
+  selectedCount: number
   onSelect: (taskId: string, columnName: string, position: number, e: React.MouseEvent) => void
 }): JSX.Element => {
-  const createdDate = 'created' in task.metadata ? formatDate(task.metadata.created, dateFormat) : null
-  const updatedDate = 'updated' in task.metadata ? formatDate(task.metadata.updated, dateFormat) : null
-  const startedDate = 'started' in task.metadata ? formatDate(task.metadata.started, dateFormat) : null
-  const dueDate = 'due' in task.metadata ? formatDate(task.metadata.due, dateFormat) : null
-  const completedDate = 'completed' in task.metadata ? formatDate(task.metadata.completed, dateFormat) : null
+  const safeFmt = (v: any): string | null => {
+    const d = parseDate(v)
+    return d != null ? formatDate(d, dateFormat) : null
+  }
+  const createdDate = 'created' in task.metadata ? safeFmt(task.metadata.created) : null
+  const updatedDate = 'updated' in task.metadata ? safeFmt(task.metadata.updated) : null
+  const startedDate = 'started' in task.metadata ? safeFmt(task.metadata.started) : null
+  const dueDate = 'due' in task.metadata ? safeFmt(task.metadata.due) : null
+  const completedDate = 'completed' in task.metadata ? safeFmt(task.metadata.completed) : null
 
   // Check if a task's due date is in the past
   const checkOverdue = (task: KanbnTask): boolean => {
     if ('due' in task.metadata && task.metadata.due !== undefined) {
-      return Date.parse(task.metadata.due) < (new Date()).getTime()
+      const d = parseDate(task.metadata.due)
+      return d != null && d.getTime() < (new Date()).getTime()
     }
     return false
   }
@@ -50,7 +74,7 @@ const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSele
                 onSelect(task.id, columnName, position, e)
                 return
               }
-              // Otherwise, let react-beautiful-dnd handle the drag
+              // Let react-beautiful-dnd handle the drag (including multi-drag for selected cards)
               if (originalOnMouseDown != null) {
                 originalOnMouseDown(e as any)
               }
@@ -69,6 +93,9 @@ const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSele
               ...provided.draggableProps.style
             }}
           >
+            {isDragging && isSelected && selectedCount > 1 &&
+              <span className="kanbn-multi-drag-badge">{selectedCount}</span>
+            }
             <div className="kanbn-task-data kanbn-task-data-name">
               <button
                 type="button"
@@ -125,7 +152,7 @@ const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSele
                               <i className="codicon codicon-json"></i>
                               <span title={customField.name}>
                                 {customField.type === 'date'
-                                  ? formatDate(task.metadata[customField.name], dateFormat)
+                                  ? (safeFmt(task.metadata[customField.name]) ?? task.metadata[customField.name])
                                   : task.metadata[customField.name]}
                               </span>
                             </>

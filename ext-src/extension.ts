@@ -85,10 +85,15 @@ export async function activate (context: vscode.ExtensionContext): Promise<void>
         new vscode.RelativePattern(vscode.Uri.file(`${boardLocation}/.kanbn`), '**')
       )
 
+      let refreshTimer: ReturnType<typeof setTimeout> | null = null
       const refreshBoard = (): void => {
-        void kanbnStatusBarItem.update(kanbnTuple.kanbn)
-        void kanbnTuple.kanbnBoardPanel.update()
-        void kanbnTuple.kanbnBurnDownPanel.update()
+        if (refreshTimer != null) { clearTimeout(refreshTimer) }
+        refreshTimer = setTimeout(() => {
+          refreshTimer = null
+          void kanbnStatusBarItem.update(kanbnTuple.kanbn)
+          void kanbnTuple.kanbnBoardPanel.update()
+          void kanbnTuple.kanbnBurnDownPanel.update()
+        }, 150)
       }
       fileWatcher.onDidChange(refreshBoard)
       fileWatcher.onDidCreate(refreshBoard)
@@ -135,10 +140,15 @@ export async function activate (context: vscode.ExtensionContext): Promise<void>
         const fileWatcher = vscode.workspace.createFileSystemWatcher(
           new vscode.RelativePattern(vscode.workspace.workspaceFolders[0], `.kanbn_boards/${boardName}/**.*`)
         )
+        let refreshNewTimer: ReturnType<typeof setTimeout> | null = null
         const refreshNewBoard = (): void => {
-          void kanbnStatusBarItem.update(kanbnTuple.kanbn)
-          void kanbnTuple.kanbnBoardPanel.update()
-          void kanbnTuple.kanbnBurnDownPanel.update()
+          if (refreshNewTimer != null) { clearTimeout(refreshNewTimer) }
+          refreshNewTimer = setTimeout(() => {
+            refreshNewTimer = null
+            void kanbnStatusBarItem.update(kanbnTuple.kanbn)
+            void kanbnTuple.kanbnBoardPanel.update()
+            void kanbnTuple.kanbnBurnDownPanel.update()
+          }, 150)
         }
         fileWatcher.onDidChange(refreshNewBoard)
         fileWatcher.onDidCreate(refreshNewBoard)

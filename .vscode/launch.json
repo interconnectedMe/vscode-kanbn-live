@@ -11,7 +11,8 @@
 			"request": "launch",
 			"args": [
 				"--extensionDevelopmentPath=${workspaceFolder}",
-				"--disable-extensions"
+				"--disable-extensions",
+				"/media/S_Drive/projects/strategy-tester"
 			],
 			"outFiles": [
 				"${workspaceFolder}/out/**/*.js"

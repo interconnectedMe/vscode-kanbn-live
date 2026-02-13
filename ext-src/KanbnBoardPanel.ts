@@ -31,6 +31,8 @@ export default class KanbnBoardPanel {
   private readonly _kanbn: Kanbn
   private readonly _kanbnBurndownPanel: KanbnBurndownPanel
   private _panel: vscode.WebviewPanel | null = null
+  private _updateSeq = 0
+  private _suppressUpdates = false
 
   public async show (): Promise<void> {
     if (this._panel == null) {
@@ -53,6 +55,8 @@ export default class KanbnBoardPanel {
   }
 
   public async update (): Promise<void> {
+    if (this._suppressUpdates) return
+    const seq = ++this._updateSeq
     let index: any
     try {
       index = await this._kanbn.getIndex()
@@ -64,6 +68,7 @@ export default class KanbnBoardPanel {
       }
       return
     }
+    if (seq !== this._updateSeq) return
     let tasks: any[]
     try {
       tasks = (await this._kanbn.loadAllTrackedTasks(index)).map((task) =>
@@ -77,6 +82,7 @@ export default class KanbnBoardPanel {
       }
       return
     }
+    if (seq !== this._updateSeq) return
     void this._panel?.webview.postMessage({
       type: 'index',
       index,
@@ -232,6 +238,7 @@ export default class KanbnBoardPanel {
           case 'kanbn.bulkMove': {
             const targetColumn = message.columnName as string
             const taskIds = message.taskIds as string[]
+            this._suppressUpdates = true
             try {
               for (const taskId of taskIds) {
                 await this._kanbn.moveTask(taskId, targetColumn, -1)
@@ -242,6 +249,8 @@ export default class KanbnBoardPanel {
               } else {
                 throw e
               }
+            } finally {
+              this._suppressUpdates = false
             }
             void this.update()
             if (vscode.workspace.getConfiguration('kanbn').get<boolean>('showTaskNotifications') === true) {
@@ -255,6 +264,7 @@ export default class KanbnBoardPanel {
           // Bulk archive multiple tasks
           case 'kanbn.bulkArchive': {
             const archiveIds = message.taskIds as string[]
+            this._suppressUpdates = true
             try {
               for (const taskId of archiveIds) {
                 await this._kanbn.archiveTask(taskId)
@@ -265,6 +275,8 @@ export default class KanbnBoardPanel {
               } else {
                 throw e
               }
+            } finally {
+              this._suppressUpdates = false
             }
             void this.update()
             if (vscode.workspace.getConfiguration('kanbn').get<boolean>('showTaskNotifications') === true) {
