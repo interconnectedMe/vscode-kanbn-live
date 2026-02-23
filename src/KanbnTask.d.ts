@@ -14,7 +14,15 @@ declare interface KanbnTask {
     due?: string
     completed?: string
     assigned?: string
+    priority?: string
     tags?: string[]
+    attachments?: Array<{ type: string, path?: string, url?: string, title: string }>
+    recurrence?: {
+      type: string
+      interval: number
+      dayOfMonth?: number
+    }
+    [key: string]: any
   }
   relations: Array<{
     type: string

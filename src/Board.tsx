@@ -295,6 +295,23 @@ const helpContent: HelpSection[] = [
     ]
   },
   {
+    heading: 'Keyboard Shortcuts',
+    items: [
+      {
+        label: '/',
+        desc: 'Focus the filter input'
+      },
+      {
+        label: 'Escape',
+        desc: 'Close popover / clear selection / clear filter'
+      },
+      {
+        label: 'Click tag',
+        desc: 'Filter by that tag'
+      }
+    ]
+  },
+  {
     heading: 'Commands (Ctrl+Shift+P)',
     items: [
       {
@@ -368,8 +385,23 @@ function Board (): JSX.Element {
     showBurndownButton: false,
     showSprintButton: false,
     currentSprint: null,
-    taskFilter: ''
+    taskFilter: '',
+    kanbnFolder: ''
   })
+
+  // 75.26: Single-column focused view
+  const [focusedColumn, setFocusedColumn] = useState<string | null>(null)
+  // 75.27: List view mode
+  const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards')
+
+  // 75.23: Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    task: KanbnTask
+    columnName: string
+    submenu: string | null
+  } | null>(null)
 
   // Multi-select state
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
@@ -379,14 +411,34 @@ function Board (): JSX.Element {
   const [showHelp, setShowHelp] = useState(false)
   const [showMoveMenu, setShowMoveMenu] = useState(false)
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false)
   const helpRef = useRef<HTMLDivElement>(null)
   const moveMenuRef = useRef<HTMLDivElement>(null)
+  const filterInputRef = useRef<HTMLInputElement>(null)
   const isDraggingRef = useRef(false)
+
+  // 75.14: Filter autocomplete options
+  const filterOptions = [
+    { prefix: 'description:', desc: 'Search in description and subtask text' },
+    { prefix: 'assigned:', desc: 'Filter by assignee' },
+    { prefix: 'tag:', desc: 'Filter by tag' },
+    { prefix: 'relation:', desc: 'Filter by relation type or task' },
+    { prefix: 'subtask:', desc: 'Search subtask text' },
+    { prefix: 'comment:', desc: 'Search comment author or text' },
+    { prefix: 'overdue', desc: 'Show only overdue tasks' }
+  ]
 
   const clearSelection = useCallback(() => {
     setSelectedTaskIds(new Set())
     setLastClicked(null)
     setShowArchiveConfirm(false)
+  }, [])
+
+  // 75.23: Context menu handler
+  const handleContextMenu = useCallback((e: React.MouseEvent, task: KanbnTask, columnName: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({ x: e.clientX, y: e.clientY, task, columnName, submenu: null })
   }, [])
 
   // Click-away to deselect: listen on the board background
@@ -445,22 +497,47 @@ function Board (): JSX.Element {
     return () => { document.removeEventListener('click', handleClick) }
   }, [showMoveMenu])
 
-  // Escape key: close popover, close move menu, or clear selection
+  // 75.23: Close context menu on click outside
+  useEffect(() => {
+    if (contextMenu === null) return
+    const handler = (): void => { setContextMenu(null) }
+    document.addEventListener('click', handler)
+    return () => { document.removeEventListener('click', handler) }
+  }, [contextMenu])
+
+  // Keyboard shortcuts: Escape (close/clear), / (focus filter)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
-        if (showHelp) {
+        // 75.23: Close context menu first
+        if (contextMenu !== null) {
+          setContextMenu(null)
+        } else if (showFilterDropdown) {
+          setShowFilterDropdown(false)
+        } else if (showHelp) {
           setShowHelp(false)
         } else if (showMoveMenu) {
           setShowMoveMenu(false)
+        } else if (focusedColumn !== null) {
+          // 75.26: Escape exits single-column focus
+          setFocusedColumn(null)
         } else if (selectedTaskIds.size > 0) {
           clearSelection()
+        } else if (state.taskFilter !== '') {
+          // 75.13: Escape clears filter
+          if (filterInputRef.current != null) { filterInputRef.current.value = '' }
+          setTaskFilter('')
         }
+      }
+      // 75.10: / focuses filter input (unless already typing in an input/textarea)
+      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+        e.preventDefault()
+        if (filterInputRef.current != null) { filterInputRef.current.focus() }
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => { document.removeEventListener('keydown', handleKeyDown) }
-  }, [showHelp, showMoveMenu, selectedTaskIds, clearSelection])
+  }, [contextMenu, showFilterDropdown, showHelp, showMoveMenu, focusedColumn, selectedTaskIds, clearSelection, state.taskFilter])
 
   // Handle task selection (Ctrl+click toggle, Shift+click range)
   const handleTaskSelect = useCallback((taskId: string, columnName: string, position: number, e: React.MouseEvent) => {
@@ -510,6 +587,33 @@ function Board (): JSX.Element {
     setShowMoveMenu(false)
   }, [selectedTaskIds, clearSelection])
 
+  // Handle tag click: set filter to tag:<tagname>
+  const handleTagClick = useCallback((tag: string) => {
+    const filterValue = `tag:${tag}`
+    if (filterInputRef.current != null) {
+      filterInputRef.current.value = filterValue
+    }
+    setTaskFilter(filterValue)
+  }, [])
+
+  // Handle select all visible tasks in a column
+  const handleSelectAllInColumn = useCallback((columnName: string) => {
+    const tasks = (state.columns[columnName] as KanbnTask[] ?? [])
+      .filter(task => filterTask(task, state.taskFilter, state.customFields))
+    setSelectedTaskIds(prev => {
+      const next = new Set(prev)
+      const allSelected = tasks.every(t => next.has(t.id))
+      if (allSelected) {
+        // Deselect all in this column
+        tasks.forEach(t => next.delete(t.id))
+      } else {
+        // Select all in this column
+        tasks.forEach(t => next.add(t.id))
+      }
+      return next
+    })
+  }, [state.columns, state.taskFilter, state.customFields])
+
   const handleBulkArchive = useCallback(() => {
     const taskIds = [...selectedTaskIds]
     vscode.postMessage({
@@ -539,6 +643,7 @@ function Board (): JSX.Element {
     newState.customFields = event.data.customFields
     newState.showBurndownButton = event.data.showBurndownButton
     newState.showSprintButton = event.data.showSprintButton
+    newState.kanbnFolder = event.data.kanbnFolder ?? ''
 
     // Get current sprint
     let sprint = null
@@ -572,14 +677,14 @@ function Board (): JSX.Element {
 
   // Called when the clear filter button is clicked
   const clearFilters = (e: React.UIEvent<HTMLElement>): void => {
-    (document.querySelector('.kanbn-filter-input') as HTMLInputElement).value = ''
+    if (filterInputRef.current != null) { filterInputRef.current.value = '' }
     filterTasks(e)
   }
 
   // Called when the filter form is submitted
   const filterTasks = (e: React.UIEvent<HTMLElement>): void => {
     e.preventDefault()
-    setTaskFilter((document.querySelector('.kanbn-filter-input') as HTMLInputElement).value)
+    setTaskFilter(filterInputRef.current?.value ?? '')
   }
 
   const taskFilter = state.taskFilter
@@ -587,8 +692,36 @@ function Board (): JSX.Element {
     col => !(state.hiddenColumns.includes(col) as boolean)
   )
 
+  // 75.27: View mode toggle buttons (shared helper, rendered in both header and focused header)
+  const viewModeToggle = (
+    <div className="kanbn-view-mode-toggle">
+      <button
+        type="button"
+        className={`kanbn-view-mode-button${viewMode === 'cards' ? ' kanbn-view-mode-active' : ''}`}
+        onClick={() => { setViewMode('cards') }}
+        title="Card view"
+      >
+        <i className="codicon codicon-symbol-class"></i>
+      </button>
+      <button
+        type="button"
+        className={`kanbn-view-mode-button${viewMode === 'list' ? ' kanbn-view-mode-active' : ''}`}
+        onClick={() => { setViewMode('list') }}
+        title="List view"
+      >
+        <i className="codicon codicon-list-flat"></i>
+      </button>
+    </div>
+  )
+
   // Indicate that the board is ready to receive messages and should be updated
   useEffect(() => vscode.postMessage({ command: 'kanbn.updateMe' }), [])
+
+  // 75.26: Determine which columns to render
+  const visibleColumns = focusedColumn !== null
+    ? Object.entries(state.columns).filter(([name]) => name === focusedColumn)
+    : Object.entries(state.columns).filter(([name]) => !((state.hiddenColumns ?? []).includes(name) as boolean))
+
   return (
     <>
       <div className="kanbn-header">
@@ -596,10 +729,49 @@ function Board (): JSX.Element {
           <p>{state.name}</p>
           <div className="kanbn-filter">
             <form>
-              <input
-                className="kanbn-filter-input"
-                placeholder="Filter tasks"
-              />
+              <div className="kanbn-filter-input-wrapper">
+                <input
+                  className="kanbn-filter-input"
+                  placeholder="Filter tasks"
+                  ref={filterInputRef}
+                  onFocus={() => { setShowFilterDropdown(true) }}
+                  onBlur={() => { setTimeout(() => { setShowFilterDropdown(false) }, 150) }}
+                  onInput={() => { setShowFilterDropdown(true) }}
+                />
+                {showFilterDropdown && (
+                  <div className="kanbn-filter-dropdown">
+                    {filterOptions
+                      .filter(opt => {
+                        const inputVal = filterInputRef.current?.value?.toLowerCase() ?? ''
+                        return inputVal === '' || opt.prefix.toLowerCase().startsWith(inputVal) || opt.desc.toLowerCase().includes(inputVal)
+                      })
+                      .map(opt => (
+                        <button
+                          key={opt.prefix}
+                          type="button"
+                          className="kanbn-filter-dropdown-item"
+                          onMouseDown={(e) => {
+                            e.preventDefault() // prevent blur from hiding dropdown before click registers
+                            if (filterInputRef.current != null) {
+                              filterInputRef.current.value = opt.prefix
+                              filterInputRef.current.focus()
+                              filterInputRef.current.setSelectionRange(opt.prefix.length, opt.prefix.length)
+                            }
+                            if (!opt.prefix.endsWith(':')) {
+                              // 'overdue' is a complete filter — apply immediately
+                              setTaskFilter(opt.prefix)
+                              setShowFilterDropdown(false)
+                            }
+                          }}
+                        >
+                          <span className="kanbn-filter-dropdown-prefix">{opt.prefix}</span>
+                          <span className="kanbn-filter-dropdown-desc">{opt.desc}</span>
+                        </button>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
               <button
                 type="submit"
                 className="kanbn-header-button kanbn-header-button-filter"
@@ -633,6 +805,38 @@ function Board (): JSX.Element {
               {
                 showHelp &&
                 <div className="kanbn-help-popover" ref={helpRef}>
+                  <div className="kanbn-help-section">
+                    <h3>Quick Filters</h3>
+                    <div className="kanbn-quick-filters">
+                      {[
+                        { label: 'description:', prefix: 'description:' },
+                        { label: 'assigned:', prefix: 'assigned:' },
+                        { label: 'tag:', prefix: 'tag:' },
+                        { label: 'subtask:', prefix: 'subtask:' },
+                        { label: 'comment:', prefix: 'comment:' },
+                        { label: 'overdue', prefix: 'overdue' }
+                      ].map(qf => (
+                        <button
+                          key={qf.label}
+                          type="button"
+                          className="kanbn-quick-filter-chip"
+                          onClick={() => {
+                            if (filterInputRef.current != null) {
+                              filterInputRef.current.value = qf.prefix
+                              filterInputRef.current.focus()
+                              // Place cursor at end for prefixes that need a value
+                              filterInputRef.current.setSelectionRange(qf.prefix.length, qf.prefix.length)
+                            }
+                            if (!qf.prefix.endsWith(':')) {
+                              setTaskFilter(qf.prefix)
+                            }
+                          }}
+                        >
+                          {qf.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   {helpContent.map(section => (
                     <div key={section.heading} className="kanbn-help-section">
                       <h3>{section.heading}</h3>
@@ -684,6 +888,8 @@ function Board (): JSX.Element {
                   <i className="codicon codicon-graph"></i>
                 </button>
               }
+              {/* 75.27: View mode toggle in main header */}
+              {viewModeToggle}
             </form>
           </div>
         </h1>
@@ -691,6 +897,21 @@ function Board (): JSX.Element {
           {state.description}
         </p>
       </div>
+      {/* 75.26: Focused column header — back button + column name + view mode toggle */}
+      {focusedColumn !== null && (
+        <div className="kanbn-focused-header">
+          <button
+            type="button"
+            className="kanbn-focused-back-button"
+            onClick={() => { setFocusedColumn(null) }}
+            title="Back to all columns"
+          >
+            <i className="codicon codicon-arrow-left"></i> All columns
+          </button>
+          <span className="kanbn-focused-column-name">{focusedColumn}</span>
+          {viewModeToggle}
+        </div>
+      )}
       {
         selectedTaskIds.size > 0 &&
         <div className="kanbn-bulk-toolbar">
@@ -757,7 +978,7 @@ function Board (): JSX.Element {
           </div>
         </div>
       }
-      <div className="kanbn-board">
+      <div className={`kanbn-board${focusedColumn !== null ? ' kanbn-board-focused' : ''}`}>
         <DragDropContext
           onBeforeDragStart={() => { isDraggingRef.current = true }}
           onDragEnd={result => {
@@ -765,10 +986,8 @@ function Board (): JSX.Element {
             onDragEnd(result, state.columns, setColumns, clearSelection, selectedTaskIdsRef.current)
           }}
         >
-          {Object.entries(state.columns).map(([columnName, column]) => {
-            if (state.hiddenColumns.includes(columnName) as boolean) {
-              return false
-            }
+          {visibleColumns.map(([columnName, column]) => {
+            const filteredTasks = (column as any[]).filter(task => filterTask(task, taskFilter, state.customFields))
             return (
               <div
                 className={[
@@ -786,8 +1005,24 @@ function Board (): JSX.Element {
                     state.completedColumns.includes(columnName) as boolean &&
                     <i className="codicon codicon-check"></i>
                   }
-                  {columnName}
+                  {/* 75.26: Clickable column name to enter single-column focus */}
+                  <button
+                    type="button"
+                    className="kanbn-column-name-button"
+                    title="Click to focus on this column"
+                    onClick={() => { setFocusedColumn(columnName) }}
+                  >
+                    {columnName}
+                  </button>
                   <span className="kanbn-column-count">{(column as any).length}</span>
+                  <button
+                    type="button"
+                    className="kanbn-column-button kanbn-select-all-button"
+                    title={`Select all in ${columnName}`}
+                    onClick={(e) => { e.stopPropagation(); handleSelectAllInColumn(columnName) }}
+                  >
+                    <i className="codicon codicon-check-all"></i>
+                  </button>
                   <button
                     type="button"
                     className="kanbn-column-button kanbn-create-task-button"
@@ -827,21 +1062,97 @@ function Board (): JSX.Element {
                   ))(columnName in state.columnSorting, state.columnSorting[columnName] ?? [])}
                 </h2>
                 <div className="kanbn-column-task-list-container">
-                  <Droppable droppableId={columnName} key={columnName}>
-                    {(provided, snapshot) => {
-                      const isDraggingOver: boolean = snapshot.isDraggingOver
-                      return (
-                        <div
-                          {...provided.droppableProps}
-                          ref={provided.innerRef}
-                          className={[
-                            'kanbn-column-task-list',
-                            isDraggingOver ? 'drag-over' : null
-                          ].filter(i => i).join(' ')}
-                        >
-                          {(column as any)
-                            .filter(task => filterTask(task, taskFilter, state.customFields))
-                            .map((task, position) => <TaskItem
+                  {/* 75.27: List view renders a flat table instead of draggable cards */}
+                  {viewMode === 'list'
+                    ? (
+                    <div className="kanbn-list-view">
+                      <div className="kanbn-list-header">
+                        <span className="kanbn-list-col kanbn-list-col-name">Name</span>
+                        <span className="kanbn-list-col kanbn-list-col-priority">Priority</span>
+                        <span className="kanbn-list-col kanbn-list-col-tags">Tags</span>
+                        <span className="kanbn-list-col kanbn-list-col-progress">Progress</span>
+                        <span className="kanbn-list-col kanbn-list-col-date">
+                          {(state.completedColumns.includes(columnName) as boolean) ? 'Completed' : 'Due'}
+                        </span>
+                      </div>
+                      {filteredTasks.map((task: any, position: number) => {
+                        const isCompletedCol = state.completedColumns.includes(columnName) as boolean
+                        const dateVal: any = isCompletedCol
+                          ? task.metadata?.completed
+                          : task.metadata?.due
+                        let parsedDate: Date | null = null
+                        if (dateVal != null) {
+                          const s = String(dateVal)
+                          const slashMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+                          if (slashMatch != null) {
+                            parsedDate = new Date(parseInt(slashMatch[3], 10), parseInt(slashMatch[2], 10) - 1, parseInt(slashMatch[1], 10))
+                          } else {
+                            const d = new Date(s)
+                            if (!isNaN(d.getTime())) { parsedDate = d }
+                          }
+                        }
+                        const displayDate = parsedDate != null
+                          ? formatDate(parsedDate, state.dateFormat)
+                          : ''
+                        const taskProgress = task.progress as number | undefined
+                        return (
+                          <div
+                            key={task.id}
+                            className={`kanbn-list-row${selectedTaskIds.has(task.id) ? ' kanbn-list-row-selected' : ''}`}
+                            onClick={(e) => {
+                              if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                                handleTaskSelect(task.id, columnName, position, e)
+                              } else {
+                                vscode.postMessage({ command: 'kanbn.task', task: task.id })
+                              }
+                            }}
+                            onContextMenu={(e) => { handleContextMenu(e, task, columnName) }}
+                          >
+                            <span className="kanbn-list-col kanbn-list-col-name" title={task.id}>{task.name}</span>
+                            <span className="kanbn-list-col kanbn-list-col-priority">
+                              {task.metadata?.priority != null && task.metadata.priority !== '' && (
+                                <span className={`kanbn-task-tag kanbn-task-priority kanbn-task-priority-${String(task.metadata.priority).toLowerCase().replace(/\s+/g, '-')}`}>
+                                  {task.metadata.priority}
+                                </span>
+                              )}
+                            </span>
+                            <span className="kanbn-list-col kanbn-list-col-tags">
+                              {(task.metadata?.tags ?? []).map((tag: string) => (
+                                <span
+                                  key={tag}
+                                  className="kanbn-task-tag kanbn-task-tag-clickable"
+                                  onClick={(e) => { e.stopPropagation(); handleTagClick(tag) }}
+                                  title={`Filter by tag: ${tag}`}
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </span>
+                            <span className="kanbn-list-col kanbn-list-col-progress">
+                              {taskProgress != null && taskProgress > 0
+                                ? `${Math.round(taskProgress * 100)}%`
+                                : ''}
+                            </span>
+                            <span className="kanbn-list-col kanbn-list-col-date">{displayDate}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                      )
+                    : (
+                    <Droppable droppableId={columnName} key={columnName}>
+                      {(provided, snapshot) => {
+                        const isDraggingOver: boolean = snapshot.isDraggingOver
+                        return (
+                          <div
+                            {...provided.droppableProps}
+                            ref={provided.innerRef}
+                            className={[
+                              'kanbn-column-task-list',
+                              isDraggingOver ? 'drag-over' : null
+                            ].filter(i => i).join(' ')}
+                          >
+                            {filteredTasks.map((task, position) => <TaskItem
                               key={task.id}
                               task={task}
                               columnName={columnName}
@@ -851,18 +1162,208 @@ function Board (): JSX.Element {
                               isSelected={selectedTaskIds.has(task.id)}
                               selectedCount={selectedTaskIds.size}
                               onSelect={handleTaskSelect}
+                              onTagClick={handleTagClick}
+                              onContextMenu={handleContextMenu}
+                              isCompletedColumn={state.completedColumns.includes(columnName)}
                             />)}
-                          {provided.placeholder}
-                        </div>
-                      )
-                    }}
-                  </Droppable>
+                            {provided.placeholder}
+                          </div>
+                        )
+                      }}
+                    </Droppable>
+                      )}
                 </div>
               </div>
             )
           })}
         </DragDropContext>
       </div>
+      {contextMenu !== null && (() => {
+        // Viewport-clamp the menu position
+        const menuWidth = 220
+        const menuHeight = 320
+        const x = Math.min(contextMenu.x, window.innerWidth - menuWidth - 8)
+        const y = Math.min(contextMenu.y, window.innerHeight - menuHeight - 8)
+        return (
+          <div
+            className="kanbn-context-menu"
+            style={{ left: x, top: y }}
+            onClick={(e) => { e.stopPropagation() }}
+          >
+            {contextMenu.submenu === null && (
+              <>
+                <button className="kanbn-context-menu-item" onClick={() => { setContextMenu(prev => prev != null ? { ...prev, submenu: 'priority' } : null) }}>
+                  Priority <span className="kanbn-context-menu-arrow">▶</span>
+                </button>
+                <button className="kanbn-context-menu-item" onClick={() => { setContextMenu(prev => prev != null ? { ...prev, submenu: 'column' } : null) }}>
+                  Move to <span className="kanbn-context-menu-arrow">▶</span>
+                </button>
+                <div className="kanbn-context-menu-separator" />
+                <button className="kanbn-context-menu-item" onClick={() => { setContextMenu(prev => prev != null ? { ...prev, submenu: 'progress' } : null) }}>
+                  Set Progress
+                </button>
+                <button className="kanbn-context-menu-item" onClick={() => { setContextMenu(prev => prev != null ? { ...prev, submenu: 'dates' } : null) }}>
+                  Set Dates
+                </button>
+                <div className="kanbn-context-menu-separator" />
+                <button className="kanbn-context-menu-item" onClick={() => { setContextMenu(prev => prev != null ? { ...prev, submenu: 'tags' } : null) }}>
+                  Tags <span className="kanbn-context-menu-arrow">▶</span>
+                </button>
+                <div className="kanbn-context-menu-separator" />
+                <button className="kanbn-context-menu-item" onClick={() => {
+                  const taskPath = state.kanbnFolder !== ''
+                    ? `${state.kanbnFolder}/.kanbn/tasks/${contextMenu.task.id}.md`
+                    : `.kanbn/tasks/${contextMenu.task.id}.md`
+                  const text = `Task: ${contextMenu.task.name}\nTask path: ${taskPath}`
+                  void navigator.clipboard.writeText(text)
+                  setContextMenu(null)
+                }}>
+                  Copy T+P
+                </button>
+              </>
+            )}
+
+            {contextMenu.submenu === 'priority' && (
+              <>
+                <button className="kanbn-context-menu-item kanbn-context-menu-back" onClick={() => { setContextMenu(prev => prev != null ? { ...prev, submenu: null } : null) }}>
+                  ◀ Priority
+                </button>
+                <div className="kanbn-context-menu-separator" />
+                {['Urgent', 'High', 'Medium', 'Low', 'Lowest'].map(p => (
+                  <button key={p} className="kanbn-context-menu-item" onClick={() => {
+                    vscode.postMessage({ command: 'kanbn.quickUpdate', taskId: contextMenu.task.id, updates: { priority: p } })
+                    setContextMenu(null)
+                  }}>
+                    <span className={`kanbn-context-priority-dot kanbn-context-priority-${p.toLowerCase()}`} />
+                    {p}
+                    {contextMenu.task.metadata?.priority === p && ' ✓'}
+                  </button>
+                ))}
+                <button className="kanbn-context-menu-item" onClick={() => {
+                  vscode.postMessage({ command: 'kanbn.quickUpdate', taskId: contextMenu.task.id, updates: { priority: '' } })
+                  setContextMenu(null)
+                }}>
+                  Clear priority
+                </button>
+              </>
+            )}
+
+            {contextMenu.submenu === 'column' && (
+              <>
+                <button className="kanbn-context-menu-item kanbn-context-menu-back" onClick={() => { setContextMenu(prev => prev != null ? { ...prev, submenu: null } : null) }}>
+                  ◀ Move to
+                </button>
+                <div className="kanbn-context-menu-separator" />
+                {Object.keys(state.columns).map(col => (
+                  <button key={col} className="kanbn-context-menu-item" onClick={() => {
+                    vscode.postMessage({ command: 'kanbn.quickUpdate', taskId: contextMenu.task.id, updates: { column: col } })
+                    setContextMenu(null)
+                  }}>
+                    {col}
+                    {col === contextMenu.columnName && ' ✓'}
+                  </button>
+                ))}
+              </>
+            )}
+
+            {contextMenu.submenu === 'progress' && (
+              <>
+                <button className="kanbn-context-menu-item kanbn-context-menu-back" onClick={() => { setContextMenu(prev => prev != null ? { ...prev, submenu: null } : null) }}>
+                  ◀ Progress
+                </button>
+                <div className="kanbn-context-menu-separator" />
+                <div className="kanbn-context-menu-input-row">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="10"
+                    defaultValue={Math.round((contextMenu.task.progress ?? 0) * 100)}
+                    className="kanbn-context-menu-input"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const value = Number((e.target as HTMLInputElement).value) / 100
+                        vscode.postMessage({ command: 'kanbn.quickUpdate', taskId: contextMenu.task.id, updates: { progress: value } })
+                        setContextMenu(null)
+                      }
+                    }}
+                  />
+                  <span className="kanbn-context-menu-input-label">%</span>
+                </div>
+              </>
+            )}
+
+            {contextMenu.submenu === 'dates' && (
+              <>
+                <button className="kanbn-context-menu-item kanbn-context-menu-back" onClick={() => { setContextMenu(prev => prev != null ? { ...prev, submenu: null } : null) }}>
+                  ◀ Dates
+                </button>
+                <div className="kanbn-context-menu-separator" />
+                <div className="kanbn-context-menu-date-row">
+                  <label className="kanbn-context-menu-date-label">Started:</label>
+                  <input
+                    type="date"
+                    className="kanbn-context-menu-input"
+                    defaultValue={contextMenu.task.metadata?.started != null ? new Date(contextMenu.task.metadata.started).toISOString().split('T')[0] : ''}
+                    onChange={(e) => {
+                      vscode.postMessage({ command: 'kanbn.quickUpdate', taskId: contextMenu.task.id, updates: { started: e.target.value !== '' ? e.target.value : null } })
+                    }}
+                  />
+                </div>
+                <div className="kanbn-context-menu-date-row">
+                  <label className="kanbn-context-menu-date-label">Due:</label>
+                  <input
+                    type="date"
+                    className="kanbn-context-menu-input"
+                    defaultValue={contextMenu.task.metadata?.due != null ? new Date(contextMenu.task.metadata.due).toISOString().split('T')[0] : ''}
+                    onChange={(e) => {
+                      vscode.postMessage({ command: 'kanbn.quickUpdate', taskId: contextMenu.task.id, updates: { due: e.target.value !== '' ? e.target.value : null } })
+                    }}
+                  />
+                </div>
+              </>
+            )}
+
+            {contextMenu.submenu === 'tags' && (
+              <>
+                <button className="kanbn-context-menu-item kanbn-context-menu-back" onClick={() => { setContextMenu(prev => prev != null ? { ...prev, submenu: null } : null) }}>
+                  ◀ Tags
+                </button>
+                <div className="kanbn-context-menu-separator" />
+                {(contextMenu.task.metadata?.tags ?? []).map((tag: string) => (
+                  <button key={tag} className="kanbn-context-menu-item" onClick={() => {
+                    const newTags = (contextMenu.task.metadata?.tags ?? []).filter((t: string) => t !== tag)
+                    vscode.postMessage({ command: 'kanbn.quickUpdate', taskId: contextMenu.task.id, updates: { tags: newTags } })
+                    setContextMenu(prev => prev != null ? { ...prev, task: { ...prev.task, metadata: { ...prev.task.metadata, tags: newTags } } } : null)
+                  }}>
+                    <span className="kanbn-context-menu-tag-remove">✕</span> {tag}
+                  </button>
+                ))}
+                <div className="kanbn-context-menu-input-row">
+                  <input
+                    type="text"
+                    placeholder="Add tag..."
+                    className="kanbn-context-menu-input"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const newTag = (e.target as HTMLInputElement).value.trim()
+                        if (newTag !== '') {
+                          const newTags = [...(contextMenu.task.metadata?.tags ?? []), newTag]
+                          vscode.postMessage({ command: 'kanbn.quickUpdate', taskId: contextMenu.task.id, updates: { tags: newTags } })
+                          setContextMenu(prev => prev != null ? { ...prev, task: { ...prev.task, metadata: { ...prev.task.metadata, tags: newTags } } } : null)
+                          ;(e.target as HTMLInputElement).value = ''
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        )
+      })()}
     </>
   )
 }

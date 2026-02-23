@@ -1,3 +1,4 @@
+import * as fs from 'fs'
 import * as path from 'path'
 import * as vscode from 'vscode'
 import getNonce from './getNonce'
@@ -22,6 +23,36 @@ function transformTaskData (
     subTasks: taskData.subTasks ?? [],
     comments: taskData.comments ?? []
   } as any
+
+  // Store priority in metadata
+  if (taskData.priority != null && taskData.priority !== '') {
+    result.metadata.priority = taskData.priority
+  }
+
+  // Preserve attachments in metadata
+  if (Array.isArray(taskData.attachments) && taskData.attachments.length > 0) {
+    result.metadata.attachments = taskData.attachments.map((att: any) => {
+      const entry: any = { type: att.type, title: att.title }
+      if (att.path != null && att.path !== '') { entry.path = att.path }
+      if (att.url != null && att.url !== '') { entry.url = att.url }
+      return entry
+    })
+  }
+
+  // Persist recurrence in metadata
+  if (taskData.recurrenceType != null && taskData.recurrenceType !== 'none' && taskData.recurrenceType !== '') {
+    result.metadata.recurrence = {
+      type: taskData.recurrenceType,
+      interval: Number(taskData.recurrenceInterval) || 1
+    }
+    if (taskData.recurrenceType === 'monthly' && taskData.recurrenceDayOfMonth != null) {
+      result.metadata.recurrence.dayOfMonth = Number(taskData.recurrenceDayOfMonth)
+    }
+  } else {
+    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+    delete result.metadata.recurrence
+  }
+
   for (const comment of result.comments) {
     comment.date = new Date(comment.date)
   }
@@ -108,6 +139,9 @@ export default class KanbnTaskPanel {
       // Enable javascript in the webview
       enableScripts: true,
 
+      // Enable Ctrl+F find widget in the webview
+      enableFindWidget: true,
+
       // Restrict the webview to only loading content from allowed paths
       localResourceRoots: [
         vscode.Uri.file(path.join(this._extensionPath, 'build')),
@@ -130,6 +164,12 @@ export default class KanbnTaskPanel {
       void this._kanbn.getTask(this._taskId).then((task) => {
         this._panel.title = task.name
       })
+    }
+
+    // Set the resource URI for the webview tab so VS Code can show the relative path
+    if (this._taskId !== null) {
+      const taskFilePath = path.join(this._kanbnFolderName, '.kanbn', 'tasks', `${this._taskId}.md`)
+      ;(this._panel as any).resourceUri = vscode.Uri.file(taskFilePath)
     }
 
     // Set the webview's initial html content
@@ -186,6 +226,9 @@ export default class KanbnTaskPanel {
             }
             this._taskId = message.taskData.id as string
             this._panel.title = message.taskData.name
+            // Update resource URI for relative path in tab context menu
+            const newTaskFilePath = path.join(this._kanbnFolderName, '.kanbn', 'tasks', `${this._taskId}.md`)
+            ;(this._panel as any).resourceUri = vscode.Uri.file(newTaskFilePath)
             return
 
           // Delete a task and close the webview panel
@@ -214,6 +257,64 @@ export default class KanbnTaskPanel {
               // TODO: remove the explicit String cast once typescript bindings for kanbn are updated
               void vscode.window.showInformationMessage(`Archived task '${taskName}'.`)
             }
+            return
+          }
+
+          // Pick a file to attach
+          case 'kanbn.pickFile': {
+            const fileUris = await vscode.window.showOpenDialog({
+              canSelectMany: false,
+              openLabel: 'Attach File',
+              canSelectFiles: true,
+              canSelectFolders: false
+            })
+            if (fileUris != null && fileUris.length > 0) {
+              const srcPath = fileUris[0].fsPath
+              const fileName = path.basename(srcPath)
+              const attachDir = path.join(this._kanbnFolderName, '.kanbn', 'attachments')
+              if (!fs.existsSync(attachDir)) {
+                fs.mkdirSync(attachDir, { recursive: true })
+              }
+              // Generate unique name if file already exists
+              let destName = fileName
+              let counter = 1
+              while (fs.existsSync(path.join(attachDir, destName))) {
+                const ext = path.extname(fileName)
+                const base = path.basename(fileName, ext)
+                destName = `${base}-${counter}${ext}`
+                counter++
+              }
+              fs.copyFileSync(srcPath, path.join(attachDir, destName))
+              void this._panel.webview.postMessage({
+                command: 'fileAttached',
+                fileName: destName,
+                title: fileName
+              })
+            }
+            return
+          }
+
+          // Open an attachment (file or URL)
+          case 'kanbn.openAttachment': {
+            const attType: string = message.attachmentType
+            if (attType === 'file') {
+              const filePath = path.join(this._kanbnFolderName, '.kanbn', 'attachments', message.path)
+              if (fs.existsSync(filePath)) {
+                void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(filePath))
+              } else {
+                void vscode.window.showErrorMessage(`Attachment not found: ${message.path as string}`)
+              }
+            } else if (attType === 'link') {
+              const target: string = message.url ?? message.path ?? ''
+              if (target.startsWith('http://') || target.startsWith('https://')) {
+                void vscode.env.openExternal(vscode.Uri.parse(target))
+              } else if (fs.existsSync(target)) {
+                void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target))
+              } else {
+                void vscode.window.showErrorMessage(`Cannot open: ${target}`)
+              }
+            }
+            return
           }
         }
       },
@@ -265,6 +366,11 @@ export default class KanbnTaskPanel {
     // Use column of task, or first column if task doesn't exist yet.
     const columnName = task?.column ?? this._defaultColumn ?? Object.keys(index.columns)[0]
 
+    // Compute relative task path for Copy T+P button
+    const taskPath = this._taskId !== null
+      ? path.relative(this._workspacePath, path.join(this._kanbnFolderName, '.kanbn', 'tasks', `${this._taskId}.md`))
+      : null
+
     // Send task data to the webview
     return {
       index,
@@ -272,7 +378,9 @@ export default class KanbnTaskPanel {
       tasks,
       customFields: index.options.customFields ?? [],
       columnName,
-      dateFormat: this._kanbn.getDateFormat(index)
+      dateFormat: this._kanbn.getDateFormat(index),
+      taskPath,
+      attachments: task?.metadata?.attachments ?? []
     }
   }
 
@@ -294,9 +402,11 @@ export default class KanbnTaskPanel {
 
     const styleUri = webview.asWebviewUri(vscode.Uri.file(path.join(this._extensionPath, 'build', mainStyle)))
 
-    const customStyleUri = webview.asWebviewUri(vscode.Uri.file(
-      path.join(this._kanbnFolderName, '.kanbn', 'board.css')
-    ))
+    const boardCssPath = path.join(this._kanbnFolderName, '.kanbn', 'board.css')
+    const boardCssExists = fs.existsSync(boardCssPath)
+    const customStyleTag = boardCssExists
+      ? `<link rel="stylesheet" type="text/css" href="${webview.asWebviewUri(vscode.Uri.file(boardCssPath)).toString()}">`
+      : ''
     const codiconsUri = webview.asWebviewUri(vscode.Uri.file(
       path.join(this._extensionPath, 'node_modules', 'vscode-codicons', 'dist', 'codicon.css')
     ))
@@ -312,7 +422,7 @@ export default class KanbnTaskPanel {
 <meta name="theme-color" content="#000000">
 <title>Kanbn Board</title>
 <link rel="stylesheet" type="text/css" href="${styleUri.toString()}">
-<link rel="stylesheet" type="text/css" href="${customStyleUri.toString()}">
+${customStyleTag}
 <link rel="stylesheet" type="text/css" href="${codiconsUri.toString()}">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src vscode-webview-resource: https:; script-src 'nonce-${nonce}'; font-src vscode-webview-resource:; style-src vscode-webview-resource: 'unsafe-inline' http: https: data:;">
 <base href="${webview.asWebviewUri(vscode.Uri.file(path.join(this._extensionPath, 'build'))).toString()}/">

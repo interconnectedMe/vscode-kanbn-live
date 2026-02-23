@@ -358,12 +358,21 @@ body.vscode-dark .kanbn-task {
     display: none;
 }
 
+/* 75.24: Show Due date in non-completed columns, Completed date in completed columns */
 .kanbn-task-data-due {
     display: none;
 }
 
+.kanbn-task:not(.kanbn-task-in-completed-column) .kanbn-task-data-due {
+    display: inline-block;
+}
+
 .kanbn-task-data-completed {
     display: none;
+}
+
+.kanbn-task.kanbn-task-in-completed-column .kanbn-task-data-completed {
+    display: inline-block;
 }
 
 .kanbn-task-data-comments {
@@ -573,6 +582,64 @@ Help popover styles
 }
 
 /*-----------------------------------------------------------------------------
+75.14: Filter autocomplete dropdown
+-----------------------------------------------------------------------------*/
+
+.kanbn-filter-input-wrapper {
+    position: relative;
+    flex: 1;
+    display: flex;
+}
+
+.kanbn-filter-input-wrapper .kanbn-filter-input {
+    flex: 1;
+}
+
+.kanbn-filter-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 280px;
+    overflow-y: auto;
+    background: var(--vscode-dropdown-background, #3c3c3c);
+    border: 1px solid var(--vscode-dropdown-border, #555);
+    border-top: none;
+    z-index: 50;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.kanbn-filter-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    border: none;
+    background: transparent;
+    color: var(--vscode-dropdown-foreground, #ccc);
+    cursor: pointer;
+    text-align: left;
+    font-size: 0.9em;
+}
+
+.kanbn-filter-dropdown-item:hover {
+    background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+.kanbn-filter-dropdown-prefix {
+    font-family: var(--vscode-editor-font-family, monospace);
+    color: var(--vscode-textLink-foreground, #3794ff);
+    font-weight: bold;
+    min-width: 100px;
+}
+
+.kanbn-filter-dropdown-desc {
+    opacity: 0.7;
+    font-size: 0.85em;
+}
+
+/*-----------------------------------------------------------------------------
 Multi-drag badge
 -----------------------------------------------------------------------------*/
 
@@ -591,6 +658,59 @@ Multi-drag badge
     border-radius: 10px;
     padding: 0 4px;
     z-index: 5;
+}
+
+/*-----------------------------------------------------------------------------
+Clickable tags
+-----------------------------------------------------------------------------*/
+
+.kanbn-task-tag-clickable {
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.kanbn-task-tag-clickable:hover {
+    opacity: 0.8;
+    text-decoration: underline;
+}
+
+/*-----------------------------------------------------------------------------
+Quick filter chips
+-----------------------------------------------------------------------------*/
+
+.kanbn-quick-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+.kanbn-quick-filter-chip {
+    display: inline-block;
+    padding: 3px 8px;
+    font-size: 0.85em;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-weight: bold;
+    color: var(--vscode-textLink-foreground, #3794ff);
+    background-color: var(--vscode-button-secondaryBackground, rgba(255, 255, 255, 0.08));
+    border: 1px solid var(--vscode-activityBar-inactiveForeground);
+    border-radius: 3px;
+    cursor: pointer;
+    outline: none;
+}
+
+.kanbn-quick-filter-chip:hover {
+    background-color: var(--vscode-button-secondaryHoverBackground, rgba(255, 255, 255, 0.15));
+}
+
+/*-----------------------------------------------------------------------------
+Copy T+P button
+-----------------------------------------------------------------------------*/
+
+.kanbn-task-editor-button-copy-tp {
+    float: right;
+    font-size: 0.85em;
+    padding: 4px 8px;
 }
 
 /*-----------------------------------------------------------------------------
@@ -845,6 +965,83 @@ body.vscode-dark .kanbn-task-editor-field-input[type="date"]::-webkit-calendar-p
 	left: 95%;
 	background-color: var(--vscode-input-background);
 	clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+
+/*-----------------------------------------------------------------------------
+Priority colour-coded tags
+-----------------------------------------------------------------------------*/
+
+.kanbn-task-priority {
+    font-size: 0.75em;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fff;
+}
+
+.kanbn-task-priority-urgent {
+    background-color: #d32f2f;
+    color: #fff;
+}
+
+.kanbn-task-priority-high {
+    background-color: #e65100;
+    color: #fff;
+}
+
+.kanbn-task-priority-medium {
+    background-color: #f9a825;
+    color: #333;
+}
+
+.kanbn-task-priority-low {
+    background-color: #1976d2;
+    color: #fff;
+}
+
+.kanbn-task-priority-lowest {
+    background-color: #9e9e9e;
+    color: #333;
+}
+
+/*-----------------------------------------------------------------------------
+Attachment styles (task editor)
+-----------------------------------------------------------------------------*/
+
+.kanbn-task-editor-row-attachment {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.kanbn-task-editor-field-attachment-icon {
+    flex: 0 0 2em;
+    text-align: center;
+    padding: 8px 0;
+    opacity: 0.7;
+}
+
+.kanbn-task-editor-field-attachment-icon .codicon {
+    font-size: 14px !important;
+}
+
+.kanbn-task-editor-field-attachment-title {
+    flex: 1;
+    margin-right: 8px;
+}
+
+.kanbn-task-editor-field-attachment-url {
+    flex: 2;
+    margin-right: 8px;
+}
+
+.kanbn-task-editor-button-open {
+    margin: 8px 0 8px 8px;
+}
+
+.kanbn-task-editor-button-open:hover,
+.kanbn-task-editor-button-open:active {
+    background-color: var(--vscode-textLink-foreground, #3794ff) !important;
 }
 
 .kanbn-task-editor-field-label-description {
@@ -1105,4 +1302,300 @@ body.vscode-light code[class*="language-"] span.token.regex,
 body.vscode-light code[class*="language-"] span.token.important,
 body.vscode-light code[class*="language-"] span.token.variable {
     color: #ee9900;
+}
+
+/*-----------------------------------------------------------------------------
+75.23: Right-click context menu
+-----------------------------------------------------------------------------*/
+
+.kanbn-context-menu {
+    position: fixed;
+    min-width: 200px;
+    max-width: 300px;
+    background: var(--vscode-menu-background, #252526);
+    border: 1px solid var(--vscode-menu-border, #454545);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 500;
+    padding: 4px 0;
+    font-size: 13px;
+}
+
+.kanbn-context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    color: var(--vscode-menu-foreground, #ccc);
+    cursor: pointer;
+    text-align: left;
+    font-size: inherit;
+}
+
+.kanbn-context-menu-item:hover {
+    background: var(--vscode-menu-selectionBackground, #094771);
+    color: var(--vscode-menu-selectionForeground, #fff);
+}
+
+.kanbn-context-menu-back {
+    font-weight: bold;
+    opacity: 0.8;
+}
+
+.kanbn-context-menu-arrow {
+    margin-left: auto;
+    opacity: 0.5;
+    font-size: 10px;
+}
+
+.kanbn-context-menu-separator {
+    height: 1px;
+    background: var(--vscode-menu-separatorBackground, #454545);
+    margin: 4px 0;
+}
+
+.kanbn-context-menu-input-row,
+.kanbn-context-menu-date-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+}
+
+.kanbn-context-menu-input {
+    flex: 1;
+    padding: 4px 8px;
+    border: 1px solid var(--vscode-input-border, #555);
+    background: var(--vscode-input-background, #3c3c3c);
+    color: var(--vscode-input-foreground, #ccc);
+    border-radius: 2px;
+    font-size: 12px;
+}
+
+.kanbn-context-menu-input-label,
+.kanbn-context-menu-date-label {
+    font-size: 12px;
+    opacity: 0.7;
+    min-width: 50px;
+}
+
+.kanbn-context-menu-tag-remove {
+    color: #c44;
+    font-weight: bold;
+}
+
+/* Priority dots for context menu */
+.kanbn-context-priority-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.kanbn-context-priority-dot.kanbn-context-priority-urgent { background: #d32f2f; }
+.kanbn-context-priority-dot.kanbn-context-priority-high { background: #e65100; }
+.kanbn-context-priority-dot.kanbn-context-priority-medium { background: #f9a825; }
+.kanbn-context-priority-dot.kanbn-context-priority-low { background: #1976d2; }
+.kanbn-context-priority-dot.kanbn-context-priority-lowest { background: #9e9e9e; }
+
+body.vscode-dark .kanbn-context-menu-input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+}
+
+/*-----------------------------------------------------------------------------
+75.26: Single-column focused view
+-----------------------------------------------------------------------------*/
+
+.kanbn-focused-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: var(--vscode-editor-background);
+    border-bottom: 1px solid var(--vscode-panel-border, #444);
+}
+
+.kanbn-focused-back-button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border: 1px solid var(--vscode-button-border, transparent);
+    background: var(--vscode-button-secondaryBackground, #3a3d41);
+    color: var(--vscode-button-secondaryForeground, #ccc);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.kanbn-focused-back-button .codicon {
+    font-size: 12px !important;
+    position: relative;
+    top: 0;
+}
+
+.kanbn-focused-back-button:hover {
+    background: var(--vscode-button-secondaryHoverBackground, #45494e);
+}
+
+.kanbn-focused-column-name {
+    font-weight: bold;
+    font-size: 1.1em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.kanbn-board-focused .kanbn-column {
+    flex: 1;
+    max-width: 100%;
+}
+
+/* Column name clickable button */
+.kanbn-column-name-button {
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+    cursor: pointer;
+    padding: 0;
+    opacity: 0.9;
+}
+
+.kanbn-column-name-button:hover {
+    opacity: 1;
+    text-decoration: underline;
+}
+
+/*-----------------------------------------------------------------------------
+75.27: View mode toggle
+-----------------------------------------------------------------------------*/
+
+.kanbn-view-mode-toggle {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+    border: 1px solid var(--vscode-button-border, #555);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.kanbn-view-mode-button {
+    padding: 4px 8px;
+    border: none;
+    background: transparent;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    opacity: 0.5;
+}
+
+.kanbn-view-mode-button .codicon {
+    font-size: 14px !important;
+    position: relative;
+    top: 1px;
+}
+
+.kanbn-view-mode-button:hover {
+    opacity: 0.8;
+    background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+.kanbn-view-mode-button.kanbn-view-mode-active {
+    opacity: 1;
+    background: var(--vscode-button-secondaryBackground, #3a3d41);
+}
+
+/* 75.27: List view */
+.kanbn-list-view {
+    width: 100%;
+}
+
+.kanbn-list-header {
+    display: flex;
+    padding: 6px 10px;
+    font-size: 0.8em;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.6;
+    border-bottom: 1px solid var(--vscode-panel-border, #444);
+    position: sticky;
+    top: 0;
+    background: var(--vscode-editor-background);
+    z-index: 5;
+}
+
+.kanbn-list-row {
+    display: flex;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--vscode-panel-border, #333);
+    cursor: pointer;
+    font-size: 0.9em;
+    align-items: center;
+}
+
+.kanbn-list-row:hover {
+    background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+.kanbn-list-row-selected {
+    background: var(--vscode-list-activeSelectionBackground, #094771);
+    color: var(--vscode-list-activeSelectionForeground, #fff);
+}
+
+.kanbn-list-col {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0 4px;
+}
+
+.kanbn-list-col-name {
+    flex: 3;
+    font-weight: 500;
+}
+
+.kanbn-list-col-priority {
+    flex: 1;
+    min-width: 70px;
+}
+
+.kanbn-list-col-tags {
+    flex: 2;
+    display: flex;
+    gap: 4px;
+    flex-wrap: nowrap;
+    overflow: hidden;
+}
+
+.kanbn-list-col-tags .kanbn-task-tag {
+    font-size: 0.8em;
+    padding: 1px 4px;
+    flex-shrink: 0;
+}
+
+.kanbn-list-col-progress {
+    flex: 0.5;
+    min-width: 50px;
+    text-align: right;
+}
+
+.kanbn-list-col-date {
+    flex: 1;
+    min-width: 80px;
+    text-align: right;
+    opacity: 0.7;
+}
+
+/* 75.25: Recurrence indicator */
+.kanbn-task-data-recurrence {
+    display: inline-block;
+    opacity: 0.7;
+}
+.kanbn-task-data-recurrence .codicon {
+    font-size: 12px;
 }

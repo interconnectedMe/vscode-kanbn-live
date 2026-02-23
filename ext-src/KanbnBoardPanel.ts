@@ -1,3 +1,4 @@
+import * as fs from 'fs'
 import * as path from 'path'
 import * as vscode from 'vscode'
 import getNonce from './getNonce'
@@ -17,7 +18,9 @@ const sortByFields: Record<string, string> = {
   'Count tags': 'countTags',
   'Count relations': 'countRelations',
   'Count comments': 'countComments',
-  Workload: 'workload'
+  Workload: 'workload',
+  Progress: 'progress',
+  Priority: 'priority'
 }
 
 export default class KanbnBoardPanel {
@@ -94,8 +97,81 @@ export default class KanbnBoardPanel {
       customFields: index.options.customFields ?? [],
       dateFormat: this._kanbn.getDateFormat(index),
       showBurndownButton: vscode.workspace.getConfiguration('kanbn').get('showBurndownButton'),
-      showSprintButton: vscode.workspace.getConfiguration('kanbn').get('showSprintButton')
+      showSprintButton: vscode.workspace.getConfiguration('kanbn').get('showSprintButton'),
+      kanbnFolder: path.relative(this._workspacePath, this._kanbnFolderName)
     })
+  }
+
+  private async handleRecurrence (taskId: string, targetColumn: string): Promise<void> {
+    const index = await this._kanbn.getIndex()
+    const completedColumns: string[] = index.options.completedColumns ?? []
+
+    // Only trigger on move to a completed column
+    if (!completedColumns.includes(targetColumn)) return
+
+    // Load the task to check for recurrence
+    const allTasks = await this._kanbn.loadAllTrackedTasks(index)
+    const task: any = allTasks.find((t: any) => t.id === taskId)
+    if (task?.metadata?.recurrence == null) return
+
+    const rec = task.metadata.recurrence
+
+    // Calculate next due date
+    const baseDate = (task.metadata.due != null) ? new Date(task.metadata.due) : new Date()
+    const nextDue = new Date(baseDate)
+
+    switch (rec.type) {
+      case 'daily':
+        nextDue.setDate(nextDue.getDate() + (rec.interval || 1))
+        break
+      case 'weekly':
+        nextDue.setDate(nextDue.getDate() + (rec.interval || 1) * 7)
+        break
+      case 'monthly':
+        nextDue.setMonth(nextDue.getMonth() + (rec.interval || 1))
+        if (rec.dayOfMonth != null) {
+          // Clamp to last day of the target month
+          const lastDay = new Date(nextDue.getFullYear(), nextDue.getMonth() + 1, 0).getDate()
+          nextDue.setDate(Math.min(rec.dayOfMonth, lastDay))
+        }
+        break
+      case 'annually':
+        nextDue.setFullYear(nextDue.getFullYear() + (rec.interval || 1))
+        break
+    }
+
+    // Build new task with same properties, cleared dates
+    const newTask: any = {
+      name: task.name,
+      description: task.description || '',
+      metadata: {
+        created: new Date(),
+        tags: task.metadata.tags != null ? [...task.metadata.tags] : [],
+        recurrence: { ...rec },
+        due: nextDue
+      },
+      subTasks: [],
+      relations: [],
+      comments: []
+    }
+    if (task.metadata.priority != null) {
+      newTask.metadata.priority = task.metadata.priority
+    }
+    if (task.metadata.assigned != null) {
+      newTask.metadata.assigned = task.metadata.assigned
+    }
+    if (Array.isArray(task.metadata.attachments)) {
+      newTask.metadata.attachments = [...task.metadata.attachments]
+    }
+
+    // Place in first non-completed, non-hidden column (typically Backlog or Todo)
+    const hiddenColumns: string[] = index.options.hiddenColumns ?? []
+    const firstOpenColumn =
+      Object.keys(index.columns).find(
+        col => !completedColumns.includes(col) && !hiddenColumns.includes(col)
+      ) ?? Object.keys(index.columns)[0]
+
+    await this._kanbn.createTask(newTask, firstOpenColumn)
   }
 
   private async setUpPanel (): Promise<void> {
@@ -103,6 +179,9 @@ export default class KanbnBoardPanel {
     this._panel = vscode.window.createWebviewPanel(KanbnBoardPanel.viewType, 'Kanbn Board', this.column, {
       // Enable javascript in the webview
       enableScripts: true,
+
+      // Enable Ctrl+F find widget in the webview
+      enableFindWidget: true,
 
       // Restrict the webview to only loading content from allowed paths
       localResourceRoots: [
@@ -152,6 +231,7 @@ export default class KanbnBoardPanel {
           case 'kanbn.move':
             try {
               await this._kanbn.moveTask(message.task, message.columnName, message.position)
+              await this.handleRecurrence(message.task, message.columnName)
             } catch (e) {
               if (e instanceof Error) {
                 void vscode.window.showErrorMessage(e.message)
@@ -207,29 +287,17 @@ export default class KanbnBoardPanel {
                 }
               )
               if (sortDirection !== undefined) {
-                const saveSort = await vscode.window.showQuickPick(
+                await this._kanbn.sort(
+                  message.columnName,
                   [
-                    'Yes',
-                    'No'
+                    {
+                      field: sortBy in sortByFields ? sortByFields[sortBy] : sortBy,
+                      order: sortDirection === 'Descending' ? 'descending' : 'ascending'
+                    }
                   ],
-                  {
-                    placeHolder: 'Save sort settings for this column?',
-                    canPickMany: false
-                  }
+                  true
                 )
-                if (saveSort !== undefined) {
-                  await this._kanbn.sort(
-                    message.columnName,
-                    [
-                      {
-                        field: sortBy in sortByFields ? sortByFields[sortBy] : sortBy,
-                        order: sortDirection === 'Descending' ? 'descending' : 'ascending'
-                      }
-                    ],
-                    saveSort === 'Yes'
-                  )
-                  void this.update()
-                }
+                void this.update()
               }
             }
             return
@@ -242,6 +310,7 @@ export default class KanbnBoardPanel {
             try {
               for (const taskId of taskIds) {
                 await this._kanbn.moveTask(taskId, targetColumn, -1)
+                await this.handleRecurrence(taskId, targetColumn)
               }
             } catch (e) {
               if (e instanceof Error) {
@@ -293,7 +362,71 @@ export default class KanbnBoardPanel {
             void this.update()
             return
 
-            // Start a new sprint
+            // Quick-update task properties from the board context menu (75.23)
+          case 'kanbn.quickUpdate': {
+            const { taskId, updates } = message
+            try {
+              const index = await this._kanbn.getIndex()
+              const allTasks = await this._kanbn.loadAllTrackedTasks(index)
+              // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+              const task: any = allTasks.find((t: any) => t.id === taskId)
+              if (task == null) {
+                void vscode.window.showErrorMessage(`Task not found: ${taskId as string}`)
+                break
+              }
+              // Find current column
+              let currentColumn = ''
+              for (const [col, ids] of Object.entries(index.columns)) {
+                if ((ids as any[]).some((item: any) => item === taskId)) {
+                  currentColumn = col
+                  break
+                }
+              }
+              // Apply property updates
+              if (updates.priority !== undefined) {
+                if (updates.priority === '') {
+                  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+                  delete task.metadata.priority
+                } else {
+                  task.metadata.priority = updates.priority
+                }
+              }
+              if (updates.progress !== undefined) {
+                task.metadata.progress = Number(updates.progress)
+              }
+              if (updates.due !== undefined) {
+                if (updates.due) {
+                  task.metadata.due = new Date(updates.due)
+                } else {
+                  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+                  delete task.metadata.due
+                }
+              }
+              if (updates.started !== undefined) {
+                if (updates.started) {
+                  task.metadata.started = new Date(updates.started)
+                } else {
+                  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+                  delete task.metadata.started
+                }
+              }
+              if (updates.tags !== undefined) {
+                task.metadata.tags = updates.tags
+              }
+              // Determine column change
+              const targetColumn = (updates.column != null && updates.column !== currentColumn) ? updates.column : null
+              await this._kanbn.updateTask(taskId, task, targetColumn)
+              if (targetColumn != null) {
+                await this.handleRecurrence(taskId, targetColumn)
+              }
+              await this.update()
+            } catch (e: any) {
+              void vscode.window.showErrorMessage(`Failed to update task: ${e.message as string}`)
+            }
+            break
+          }
+
+          // Start a new sprint
           case 'kanbn.sprint': {
             // Prompt for a sprint name
             const newSprintName = await vscode.window.showInputBox({
@@ -344,9 +477,11 @@ export default class KanbnBoardPanel {
     const webview = this._panel.webview
     const scriptUri = webview.asWebviewUri(vscode.Uri.file(path.join(this._extensionPath, 'build', mainScript)))
     const styleUri = webview.asWebviewUri(vscode.Uri.file(path.join(this._extensionPath, 'build', mainStyle)))
-    const customStyleUri = webview.asWebviewUri(vscode.Uri.file(
-      path.join(this._kanbnFolderName, '.kanbn', 'board.css')
-    ))
+    const boardCssPath = path.join(this._kanbnFolderName, '.kanbn', 'board.css')
+    const boardCssExists = fs.existsSync(boardCssPath)
+    const customStyleTag = boardCssExists
+      ? `<link rel="stylesheet" type="text/css" href="${webview.asWebviewUri(vscode.Uri.file(boardCssPath)).toString()}">`
+      : ''
     const codiconsUri = webview.asWebviewUri(vscode.Uri.file(
       path.join(this._extensionPath, 'node_modules', 'vscode-codicons', 'dist', 'codicon.css')
     ))
@@ -362,7 +497,7 @@ export default class KanbnBoardPanel {
 <meta name="theme-color" content="#000000">
 <title>Kanbn Board</title>
 <link rel="stylesheet" type="text/css" href="${styleUri.toString()}">
-<link rel="stylesheet" type="text/css" href="${customStyleUri.toString()}">
+${customStyleTag}
 <link rel="stylesheet" type="text/css" href="${codiconsUri.toString()}">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src vscode-webview-resource: https:; script-src 'nonce-${nonce}'; font-src vscode-webview-resource:; style-src vscode-webview-resource: 'unsafe-inline' http: https: data:;">
 <base href="${webview.asWebviewUri(vscode.Uri.file(path.join(this._extensionPath, 'build'))).toString()})}/">

@@ -44,7 +44,7 @@ const Markdown = (props): JSX.Element => {
   }} />)
 }
 
-const EditableMarkdown = ({ formMethods, inputName, multiline, markdownClassnames, inputClassnames, inputId, defaultValue }: any): JSX.Element => {
+const EditableMarkdown = ({ formMethods, inputName, multiline, markdownClassnames, inputClassnames, inputId, defaultValue, tabIndex }: any): JSX.Element => {
   const { register, watch } = formMethods
   const [isFocused, setIsFocused] = useState(false)
   const markdown = watch(inputName, defaultValue ?? '')
@@ -78,7 +78,13 @@ const EditableMarkdown = ({ formMethods, inputName, multiline, markdownClassname
         />
           )
         : (
-        <div onClick={() => handleFocus()} className={markdownClassnames}>
+        <div
+          onClick={() => handleFocus()}
+          onFocus={() => handleFocus()}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleFocus() }}
+          tabIndex={tabIndex ?? 0}
+          className={markdownClassnames}
+        >
           <Markdown>{markdown as string}</Markdown>
         </div>
           )}
@@ -112,13 +118,22 @@ interface Tag {
   tag: string
 }
 
+interface Attachment {
+  type: 'file' | 'link'
+  path?: string
+  url?: string
+  title: string
+}
+
 interface EditorState {
   name: string
   description: string
   subTasks: SubTask[]
   relations: Relation[]
   comments: Comment[]
+  attachments: Attachment[]
   column: string
+  priority: string
   assignedTo: string
   startedDate: string | null
   dueDate: string | null
@@ -126,6 +141,9 @@ interface EditorState {
   tags: Tag[]
   progress: number
   customFields: CustomField[]
+  recurrenceType: string
+  recurrenceInterval: number
+  recurrenceDayOfMonth: number
 }
 
 interface Task {
@@ -141,6 +159,7 @@ interface TaskState {
   createdDate: Date | null
   updatedDate: Date | null
   customFields: CustomField[]
+  taskPath: string | null
 }
 
 // vscode state is task data as shown in the form, and the state of the form
@@ -237,6 +256,16 @@ const TaskEditor = (): JSX.Element => {
     name: 'tags'
   })
 
+  // attachments
+  const {
+    fields: attachmentFields,
+    append: appendAttachment,
+    remove: removeAttachment
+  } = useFieldArray({
+    control,
+    name: 'attachments'
+  })
+
   const {
     fields: customFields
   } = useFieldArray({
@@ -252,6 +281,10 @@ const TaskEditor = (): JSX.Element => {
     control,
     name: 'dueDate'
   })
+  const watchedRecurrenceType = useWatch({
+    control,
+    name: 'recurrenceType'
+  })
 
   // Check if a task's due date is in the past
   const checkOverdue = (): boolean => {
@@ -262,6 +295,20 @@ const TaskEditor = (): JSX.Element => {
   }
 
   const processMessage = useCallback(event => {
+    // Handle file attachment response from extension host
+    if (event.data.command === 'fileAttached') {
+      appendAttachment({
+        type: 'file',
+        path: event.data.fileName,
+        url: '',
+        title: event.data.title
+      })
+      return
+    }
+
+    // Ignore messages without index data (non-update messages)
+    if (event.data.index == null) return
+
     const tasks = Object.fromEntries((event.data.tasks ?? []).map(task => [task.id, task]))
     const newState: TaskState = {
       // TODO: Not sure yet if name is necessary. Definitely won't be necessary in the future
@@ -273,7 +320,8 @@ const TaskEditor = (): JSX.Element => {
       dateFormat: event.data.dateFormat,
       createdDate: event.data.task?.metadata?.created ?? null,
       updatedDate: event.data.task?.metadata?.updated ?? null,
-      customFields: event.data.customFields ?? []
+      customFields: event.data.customFields ?? [],
+      taskPath: event.data.taskPath ?? null
     }
     setState(newState)
     if (shouldUpdateEditorState) {
@@ -294,16 +342,26 @@ const TaskEditor = (): JSX.Element => {
           name: event.data.task?.name ?? '',
           description: event.data.task?.description ?? '',
           column: event.data.columnName,
+          priority: event.data.task?.metadata?.priority ?? '',
           progress: event.data.task?.metadata?.progress ?? 0,
           relations: event.data.task?.relations ?? [],
           subTasks: event.data.task?.subTasks ?? [],
           comments: event.data.task?.comments ?? [],
+          attachments: (event.data.attachments ?? []).map((att: any) => ({
+            type: att.type ?? 'link',
+            path: att.path ?? '',
+            url: att.url ?? '',
+            title: att.title ?? ''
+          })),
           customFields: event.data.customFields?.map((customField: { name: string, type: string }) => ({ ...customField, value: (customField.type === 'date' ? formatDateString(event.data.task?.metadata[customField.name]) : event.data.task?.metadata[customField.name]) })) ?? [],
           tags: event.data.task?.metadata?.tags.map((tag: string): Tag => ({ tag })) ?? [],
           dueDate: formatDateString(event.data.task?.metadata?.due),
           startedDate: formatDateString(event.data.task?.metadata?.started),
           completedDate: formatDateString(event.data.task?.metadata?.completed),
-          assignedTo: event.data.task?.metadata?.assigned ?? ''
+          assignedTo: event.data.task?.metadata?.assigned ?? '',
+          recurrenceType: event.data.task?.metadata?.recurrence?.type ?? 'none',
+          recurrenceInterval: event.data.task?.metadata?.recurrence?.interval ?? 1,
+          recurrenceDayOfMonth: event.data.task?.metadata?.recurrence?.dayOfMonth ?? 1
         }
       )
     }
@@ -321,6 +379,17 @@ const TaskEditor = (): JSX.Element => {
   useEffect(() => {
     vscode.setState(formData)
   }, [formData])
+
+  const [copyTpStatus, setCopyTpStatus] = useState<string | null>(null)
+  const handleCopyTp = (): void => {
+    const taskName = formData.name ?? state?.name ?? ''
+    const taskPath = state?.taskPath ?? ''
+    const text = `Task: ${taskName}\nTask path: ${taskPath}`
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopyTpStatus('Copied!')
+      setTimeout(() => { setCopyTpStatus(null) }, 2000)
+    })
+  }
 
   if (state === null || shouldUpdateEditorState) {
     return <div className="kanbn-task-editor">Loading...</div>
@@ -379,6 +448,8 @@ const TaskEditor = (): JSX.Element => {
                   {...register('name', { required: true, validate: validateName })}
                   className="kanbn-task-editor-field-input"
                   placeholder="Name"
+                  tabIndex={1}
+                  autoFocus={!state.taskCreated}
                 />
               </label>
               <div className="kanbn-task-editor-id">{(paramCase(state.name ?? ''))}</div>
@@ -390,6 +461,17 @@ const TaskEditor = (): JSX.Element => {
               >
                 <p>Description</p>
               </label>
+              {state.taskCreated && state.taskPath != null &&
+                <button
+                  type="button"
+                  className="kanbn-task-editor-button kanbn-task-editor-button-copy-tp"
+                  title="Copy Task name + path to clipboard"
+                  onClick={handleCopyTp}
+                >
+                  <i className="codicon codicon-copy"></i>
+                  {copyTpStatus != null ? copyTpStatus : 'Copy T+P'}
+                </button>
+              }
               <EditableMarkdown
                 formMethods={{ watch, register }}
                 inputName='description'
@@ -397,6 +479,7 @@ const TaskEditor = (): JSX.Element => {
                 markdownClassnames="kanbn-task-editor-description-preview"
                 inputId="description-input"
                 inputClassnames="kanbn-task-editor-field-textarea"
+                tabIndex={2}
               />
             </div>
             <div className="kanbn-task-editor-field kanbn-task-editor-field-subtasks">
@@ -546,6 +629,81 @@ const TaskEditor = (): JSX.Element => {
                 </div>
               </div>
             </div>
+            <div className="kanbn-task-editor-field kanbn-task-editor-field-attachments">
+              <h2 className="kanbn-task-editor-title">Attachments</h2>
+              <div>
+                {attachmentFields.map((attachment: any, index) => (
+                  <div className="kanbn-task-editor-row kanbn-task-editor-row-attachment" key={index}>
+                    <div className="kanbn-task-editor-column kanbn-task-editor-field-attachment-icon">
+                      <i className={`codicon ${attachment.type === 'file' ? 'codicon-file' : 'codicon-link-external'}`}></i>
+                    </div>
+                    <div className="kanbn-task-editor-column kanbn-task-editor-field-attachment-title">
+                      <input
+                        {...register(`attachments.${index}.title`)}
+                        className="kanbn-task-editor-field-input"
+                        placeholder="Title"
+                      />
+                    </div>
+                    {attachment.type === 'link' && (
+                      <div className="kanbn-task-editor-column kanbn-task-editor-field-attachment-url">
+                        <input
+                          {...register(`attachments.${index}.url`)}
+                          className="kanbn-task-editor-field-input"
+                          placeholder="URL or local path"
+                        />
+                      </div>
+                    )}
+                    <div className="kanbn-task-editor-column kanbn-task-editor-column-buttons">
+                      <button
+                        type="button"
+                        className="kanbn-task-editor-button kanbn-task-editor-button-open"
+                        title="Open attachment"
+                        onClick={() => {
+                          vscode.postMessage({
+                            command: 'kanbn.openAttachment',
+                            attachmentType: attachment.type,
+                            path: attachment.path,
+                            url: attachment.url
+                          })
+                        }}
+                      >
+                        <i className="codicon codicon-go-to-file"></i>
+                      </button>
+                      <button
+                        type="button"
+                        className="kanbn-task-editor-button kanbn-task-editor-button-delete"
+                        title="Remove attachment"
+                        onClick={() => removeAttachment(index)}
+                      >
+                        <i className="codicon codicon-trash"></i>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div className="kanbn-task-editor-buttons">
+                  <button
+                    type="button"
+                    className="kanbn-task-editor-button kanbn-task-editor-button-add"
+                    title="Attach a file (copies to .kanbn/attachments/)"
+                    onClick={() => {
+                      vscode.postMessage({ command: 'kanbn.pickFile' })
+                    }}
+                  >
+                    <i className="codicon codicon-file-add"></i>Add file
+                  </button>
+                  <button
+                    type="button"
+                    className="kanbn-task-editor-button kanbn-task-editor-button-add"
+                    title="Add a URL or local file path reference"
+                    onClick={() => {
+                      appendAttachment({ type: 'link', path: '', url: '', title: '' })
+                    }}
+                  >
+                    <i className="codicon codicon-link"></i>Add link
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
           <div className="kanbn-task-editor-column-right">
             <div className="kanbn-task-editor-field kanbn-task-editor-field-column">
@@ -559,6 +717,80 @@ const TaskEditor = (): JSX.Element => {
                 </select>
               </label>
             </div>
+            <div className="kanbn-task-editor-field kanbn-task-editor-field-priority">
+              <label className="kanbn-task-editor-field-label">
+                <p>Priority</p>
+                <select
+                  {...register('priority')}
+                  className="kanbn-task-editor-field-select"
+                >
+                  <option value="">None</option>
+                  <option value="Urgent">Urgent</option>
+                  <option value="High">High</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Low">Low</option>
+                  <option value="Lowest">Lowest</option>
+                </select>
+              </label>
+            </div>
+            <div className="kanbn-task-editor-field kanbn-task-editor-field-recurrence">
+              <label className="kanbn-task-editor-field-label">
+                <p>Recurrence</p>
+                <select
+                  {...register('recurrenceType')}
+                  className="kanbn-task-editor-field-select"
+                >
+                  <option value="none">None</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="annually">Annually</option>
+                </select>
+              </label>
+            </div>
+            {watchedRecurrenceType != null && watchedRecurrenceType !== 'none' && watchedRecurrenceType !== '' && (
+              <>
+                <div className="kanbn-task-editor-field kanbn-task-editor-field-recurrence-interval">
+                  <label className="kanbn-task-editor-field-label">
+                    <p>Every</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        {...register('recurrenceInterval', { valueAsNumber: true, min: 1, max: 365 })}
+                        type="number"
+                        min="1"
+                        max="365"
+                        className="kanbn-task-editor-field-input"
+                        style={{ width: '60px' }}
+                      />
+                      <span>
+                        {watchedRecurrenceType === 'daily'
+                          ? 'day(s)'
+                          : watchedRecurrenceType === 'weekly'
+                            ? 'week(s)'
+                            : watchedRecurrenceType === 'monthly'
+                              ? 'month(s)'
+                              : 'year(s)'}
+                      </span>
+                    </div>
+                  </label>
+                </div>
+                {watchedRecurrenceType === 'monthly' && (
+                  <div className="kanbn-task-editor-field kanbn-task-editor-field-recurrence-dom">
+                    <label className="kanbn-task-editor-field-label">
+                      <p>Day of month</p>
+                      <input
+                        {...register('recurrenceDayOfMonth', { valueAsNumber: true, min: 1, max: 31 })}
+                        type="number"
+                        min="1"
+                        max="31"
+                        className="kanbn-task-editor-field-input"
+                        style={{ width: '60px' }}
+                      />
+                    </label>
+                  </div>
+                )}
+              </>
+            )}
             <div className="kanbn-task-editor-field kanbn-task-editor-field-assigned">
               <label className="kanbn-task-editor-field-label">
                 <p>Assigned to</p>

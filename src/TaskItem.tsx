@@ -22,7 +22,7 @@ const parseDate = (value: any): Date | null => {
   return d
 }
 
-const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSelected, selectedCount, onSelect }: {
+const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSelected, selectedCount, onSelect, onTagClick, onContextMenu, isCompletedColumn }: {
   task: KanbnTask
   columnName: string
   customFields: Array<{ name: string, type: 'boolean' | 'date' | 'number' | 'string' }>
@@ -31,6 +31,9 @@ const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSele
   isSelected: boolean
   selectedCount: number
   onSelect: (taskId: string, columnName: string, position: number, e: React.MouseEvent) => void
+  onTagClick: (tag: string) => void
+  onContextMenu: (e: React.MouseEvent, task: KanbnTask, columnName: string) => void
+  isCompletedColumn: boolean
 }): JSX.Element => {
   const safeFmt = (v: any): string | null => {
     const d = parseDate(v)
@@ -66,6 +69,7 @@ const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSele
             ref={provided.innerRef}
             {...provided.draggableProps}
             {...dragHandleProps}
+            onContextMenu={(e) => { onContextMenu(e, task, columnName) }}
             onMouseDown={(e: React.MouseEvent<HTMLDivElement>) => {
               // When Ctrl/Shift is held, handle selection instead of drag
               if (e.ctrlKey || e.metaKey || e.shiftKey) {
@@ -86,7 +90,8 @@ const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSele
               checkOverdue(task) ? 'kanbn-task-overdue' : null,
               completedDate ?? 'kanbn-task-completed',
               isDragging ? 'drag' : null,
-              isSelected ? 'kanbn-task-selected' : null
+              isSelected ? 'kanbn-task-selected' : null,
+              isCompletedColumn ? 'kanbn-task-in-completed-column' : null
             ].filter(i => i).join(' ')}
             style={{
               userSelect: 'none',
@@ -112,16 +117,34 @@ const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSele
               </button>
             </div>
             {
+              task.metadata.priority != null &&
+              task.metadata.priority !== '' &&
+              <div className="kanbn-task-data kanbn-task-data-tags">
+                <span className={`kanbn-task-tag kanbn-task-priority kanbn-task-priority-${String(paramCase(task.metadata.priority))}`}>
+                  {task.metadata.priority}
+                </span>
+              </div>
+            }
+            {
               task.metadata.tags !== undefined &&
               task.metadata.tags.length > 0 &&
               <div className="kanbn-task-data kanbn-task-data-tags">
                 {task.metadata.tags.map(tag => {
                   return (
-                    <span key={tag} className={[
-                      'kanbn-task-tag',
-                      // TODO: remove the explicit String cast once typescript bindings for kanbn are updated
-                      `kanbn-task-tag-${String(paramCase(tag))}`
-                    ].join(' ')}>
+                    <span
+                      key={tag}
+                      className={[
+                        'kanbn-task-tag',
+                        'kanbn-task-tag-clickable',
+                        // TODO: remove the explicit String cast once typescript bindings for kanbn are updated
+                        `kanbn-task-tag-${String(paramCase(tag))}`
+                      ].join(' ')}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onTagClick(tag)
+                      }}
+                      title={`Filter by tag: ${tag}`}
+                    >
                       {tag}
                     </span>
                   )
@@ -202,6 +225,15 @@ const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSele
               </div>
             }
             {
+              task.metadata?.recurrence != null &&
+              <div
+                className="kanbn-task-data kanbn-task-data-recurrence"
+                title={`Recurs every ${task.metadata.recurrence.interval ?? 1} ${task.metadata.recurrence.type}`}
+              >
+                <i className="codicon codicon-sync"></i>
+              </div>
+            }
+            {
               task.comments.length > 0 &&
               <div className="kanbn-task-data kanbn-task-data-comments">
                 <i className="codicon codicon-comment"></i>{task.comments.length}
@@ -235,8 +267,8 @@ const TaskItem = ({ task, columnName, customFields, position, dateFormat, isSele
               ))
             }
             {
-              task.workload !== undefined &&
               task.progress !== undefined &&
+              task.progress > 0 &&
               <div className="kanbn-task-progress" style={{
                 width: `${Math.min(1, Math.max(0, task.progress)) * 100}%`
               }}></div>
